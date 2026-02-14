@@ -2,26 +2,117 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-}
-
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
+}
+
+@layer base {
+  :root {
+    /* Light brown & cream palette */
+    --background: 38 30% 96%;
+    --foreground: 25 25% 15%;
+    --card: 35 25% 92%;
+    --card-foreground: 25 25% 15%;
+    --popover: 35 25% 92%;
+    --popover-foreground: 25 25% 15%;
+    --primary: 28 45% 38%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 35 20% 88%;
+    --secondary-foreground: 25 25% 15%;
+    --muted: 35 15% 85%;
+    --muted-foreground: 30 15% 45%;
+    --accent: 28 45% 38%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 60% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 35 20% 88%;
+    --input: 35 20% 90%;
+    --ring: 28 45% 38%;
+    --chart-1: 28 45% 45%;
+    --chart-2: 35 35% 55%;
+    --chart-3: 25 40% 50%;
+    --chart-4: 40 30% 60%;
+    --chart-5: 20 35% 45%;
+    --radius: 0.5rem;
+    /* forge palette - semantic aliases */
+    --forge-bg: 38 30% 96%;
+    --forge-card: 35 25% 92%;
+    --forge-accent: 28 45% 38%;
+    --forge-border: 35 20% 88%;
+    --forge-text: 25 25% 15%;
+    --forge-muted: 30 15% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Scrollbar - uses theme variables */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--border));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--muted));
+}
+
+/* Code blocks */
+pre {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  background-color: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+
+pre code {
+  font-family: inherit;
+}
+
+/* Prose for markdown - prose-invert works on dark card backgrounds */
+.prose {
+  color: hsl(var(--foreground));
+}
+
+/* Blockquotes */
+blockquote {
+  border-left: 4px solid hsl(var(--border));
+  padding-left: 1rem;
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+
+/* Links */
+a {
+  color: hsl(var(--primary));
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
