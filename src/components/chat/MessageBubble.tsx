@@ -77,6 +77,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             error={meta.error}
             code={meta.code}
             language={meta.language}
+            checkpoint={meta.checkpoint}
           />
         )}
 

@@ -24,6 +24,11 @@ interface SandboxOutputProps {
   error?: string
   code?: string
   language?: string
+  checkpoint?: {
+    type: string
+    reason: string
+    details?: string[]
+  }
 }
 
 export function SandboxOutput({
@@ -36,6 +41,7 @@ export function SandboxOutput({
   error,
   code,
   language = 'python',
+  checkpoint,
 }: SandboxOutputProps) {
   const [expanded, setExpanded] = useState(true)
   const [selectedChart, setSelectedChart] = useState<{ url: string; title: string } | null>(null)
@@ -143,6 +149,20 @@ export function SandboxOutput({
               </div>
             )}
 
+            {/* Safety checkpoint */}
+            {checkpoint && (
+              <div className="rounded border border-amber-500/30 bg-amber-500/5 p-3">
+                <p className="text-sm font-medium text-amber-400">{checkpoint.reason}</p>
+                {checkpoint.details && checkpoint.details.length > 0 && (
+                  <ul className="mt-2 text-xs text-amber-200 list-disc list-inside space-y-1">
+                    {checkpoint.details.map((detail) => (
+                      <li key={detail}>{detail}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
             {/* Files */}
             {filesCreated && filesCreated.length > 0 && (
               <div className="space-y-2">
@@ -203,5 +223,4 @@ function formatBytes(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
-
 

@@ -22,7 +22,11 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
   } = useChatStore()
 
   const handleSend = useCallback(
-    async (message: string, files?: File[]) => {
+    async (
+      message: string,
+      files?: File[],
+      options?: { allowDangerousActions?: boolean }
+    ) => {
       // Add user message
       const userMsg: Message = {
         id: uuidv4(),
@@ -76,6 +80,9 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
             message,
             conversationId,
             fileIds: fileIds.length > 0 ? fileIds : undefined,
+            approval: {
+              allowDangerousActions: options?.allowDangerousActions ?? false,
+            },
           }),
         })
 
@@ -138,6 +145,16 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
                       { name: parsed.name, url: parsed.url, size: parsed.size },
                     ],
                   })
+                  break
+                case 'checkpoint':
+                  updateLastMessageMetadata({
+                    checkpoint: {
+                      type: parsed.type,
+                      reason: parsed.reason,
+                      details: parsed.details,
+                    },
+                  })
+                  setLoading(false)
                   break
                 case 'error':
                   accumulatedText += `\n\nError: ${parsed.message}`

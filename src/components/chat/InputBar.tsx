@@ -1,19 +1,24 @@
 'use client'
 
 import { useState, useRef, useCallback } from 'react'
-import { Paperclip, ArrowUp } from 'lucide-react'
+import { Paperclip, ArrowUp, ShieldAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { FilePreview } from './FilePreview'
 import { useChatStore } from '@/stores/chatStore'
 
 interface InputBarProps {
-  onSend: (message: string, files?: File[]) => void
+  onSend: (
+    message: string,
+    files?: File[],
+    options?: { allowDangerousActions?: boolean }
+  ) => void
 }
 
 export function InputBar({ onSend }: InputBarProps) {
   const [input, setInput] = useState('')
   const [files, setFiles] = useState<File[]>([])
+  const [allowDangerousActions, setAllowDangerousActions] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { isStreaming, isLoading } = useChatStore()
@@ -25,13 +30,15 @@ export function InputBar({ onSend }: InputBarProps) {
     if (!trimmed && files.length === 0) return
     if (isDisabled) return
 
-    onSend(trimmed, files.length > 0 ? files : undefined)
+    onSend(trimmed, files.length > 0 ? files : undefined, {
+      allowDangerousActions,
+    })
     setInput('')
     setFiles([])
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
-  }, [input, files, isDisabled, onSend])
+  }, [input, files, isDisabled, onSend, allowDangerousActions])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -91,6 +98,22 @@ export function InputBar({ onSend }: InputBarProps) {
             className="text-forge-muted hover:text-forge-text shrink-0 mb-0.5"
           >
             <Paperclip className="h-4 w-4" />
+          </Button>
+
+          <Button
+            variant={allowDangerousActions ? 'default' : 'ghost'}
+            size="icon"
+            type="button"
+            onClick={() => setAllowDangerousActions((prev) => !prev)}
+            disabled={isDisabled}
+            className={
+              allowDangerousActions
+                ? 'bg-amber-500 hover:bg-amber-500/90 text-black shrink-0 mb-0.5'
+                : 'text-forge-muted hover:text-forge-text shrink-0 mb-0.5'
+            }
+            title="Allow risky actions"
+          >
+            <ShieldAlert className="h-4 w-4" />
           </Button>
 
           <Textarea

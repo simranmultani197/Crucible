@@ -61,9 +61,11 @@ async function detectNewFiles(
 export async function executeCode(
   sandbox: Sandbox,
   code: string,
-  language: string = 'python'
+  language: string = 'python',
+  options?: { timeoutMs?: number }
 ): Promise<ExecutionResult> {
   const startTime = Date.now()
+  const timeoutMs = options?.timeoutMs ?? 30000
 
   try {
     // Snapshot directory before execution to detect new files later
@@ -71,7 +73,7 @@ export async function executeCode(
 
     if (language === 'python') {
       const execution = await sandbox.runCode(code, {
-        timeoutMs: 30000,
+        timeoutMs,
       })
 
       const stdout = execution.logs.stdout.join('\n')
@@ -129,7 +131,7 @@ export async function executeCode(
           ? `node /home/user/${scriptFilename}`
           : `bash /home/user/${scriptFilename}`
 
-      const result = await sandbox.commands.run(cmd, { timeoutMs: 30000 })
+      const result = await sandbox.commands.run(cmd, { timeoutMs })
 
       // Detect files written to disk by JS/bash scripts
       const diskFiles = await detectNewFiles(

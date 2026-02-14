@@ -5,6 +5,7 @@ interface TypingIndicatorProps {
 }
 
 const statusMessages: Record<string, string> = {
+  memory_loading: 'Loading memory...',
   routing: 'Analyzing your query...',
   classified: 'Query classified',
   generating: 'Generating response...',

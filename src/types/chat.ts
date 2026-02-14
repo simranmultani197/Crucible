@@ -16,6 +16,11 @@ export interface Message {
     error?: string
     code?: string
     language?: string
+    checkpoint?: {
+      type: string
+      reason: string
+      details?: string[]
+    }
   }
   isStreaming?: boolean
   createdAt: string
@@ -35,7 +40,7 @@ export interface ChatRequest {
   fileIds?: string[]
 }
 
-export type SSEEventType = 'status' | 'text' | 'code' | 'output' | 'file' | 'error' | 'done'
+export type SSEEventType = 'status' | 'text' | 'code' | 'output' | 'file' | 'checkpoint' | 'error' | 'done'
 
 export interface SSEEvent {
   event: SSEEventType

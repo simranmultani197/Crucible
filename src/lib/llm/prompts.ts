@@ -69,3 +69,20 @@ export const SUMMARIZE_SYSTEM_PROMPT = `You are an assistant that explains code 
 Given the user's original query and the execution output, provide a concise summary of what happened and the results. If there were errors, explain them simply and suggest fixes.
 
 Keep responses concise — 2-4 sentences for simple results, more for complex analysis. Use markdown formatting when helpful.`
+
+export const MEMORY_SUMMARY_SYSTEM_PROMPT = `You maintain long-term memory for an AI assistant.
+
+Given recent chat messages, return compact JSON with:
+{
+  "summary": "2-4 sentence summary focused on durable context",
+  "keyTopics": ["topic1", "topic2"],
+  "facts": [
+    { "type": "preference|profile|goal|constraint|context", "content": "durable user fact", "confidence": 0.0-1.0 }
+  ]
+}
+
+Rules:
+- Include only durable facts likely to matter later.
+- Do not include secrets, tokens, passwords, API keys, or one-time transient details.
+- Keep facts concise and non-duplicative.
+- Return JSON only.`

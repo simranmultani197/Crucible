@@ -74,8 +74,8 @@ export async function trackUsage(
     cost_estimate_usd: estimateCost(usage),
   })
 
-  // Increment session counter for sandbox usage
-  if (usage.eventType === 'sandbox') {
+  // Increment session counter once per completed assistant response
+  if (usage.eventType === 'sandbox' || usage.eventType === 'chat') {
     await supabase.rpc('increment_daily_sessions', { user_id_param: userId })
   }
 
