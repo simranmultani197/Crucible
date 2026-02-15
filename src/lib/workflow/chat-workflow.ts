@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { classifyIntent } from '@/lib/llm/router'
 import { discoverTools, getPackagesToInstall } from '@/lib/tools/discovery'
-import { getOrCreateSandbox, installPackages } from '@/lib/sandbox/manager'
+import { getOrCreateSandbox, installPackages, destroySandbox } from '@/lib/sandbox/manager'
 import { executeCode } from '@/lib/sandbox/executor'
 import { generateCode, summarizeResults } from '@/lib/llm/executor'
 import { checkSandboxAccess, trackUsage } from '@/lib/usage/tracker'
@@ -14,7 +14,10 @@ import {
 import { getAnthropicClient } from '@/lib/llm/client'
 import { MemoryManager } from '@/lib/memory/manager'
 import { RunLedger, type RunUsage } from '@/lib/runs/ledger'
+import { buildSignedRunManifest } from '@/lib/runs/manifest'
+import { evaluateEgressPolicy } from '@/lib/security/egress'
 import type { PlanType } from '@/lib/usage/constants'
+import type { SandboxProviderPreference } from '@/types/sandbox'
 
 const MODEL_ID = 'claude-haiku-4-5-20251001'
 const MODEL_LABEL = 'haiku-4.5'
@@ -42,8 +45,8 @@ export async function runChatWorkflow(input: ChatWorkflowInput): Promise<Workflo
   const startTime = Date.now()
   const hasAttachment = Boolean(input.fileIds && input.fileIds.length > 0)
   const ledger = new RunLedger(input.supabase)
-  const plan = await getUserPlan(input.userId, input.supabase)
-  const budget = buildRunBudget(plan)
+  const userExecution = await getUserExecutionSettings(input.userId, input.supabase)
+  const budget = buildRunBudget(userExecution.plan)
   const usage: RunUsage = {
     inputTokens: 0,
     outputTokens: 0,
@@ -60,6 +63,7 @@ export async function runChatWorkflow(input: ChatWorkflowInput): Promise<Workflo
 
   let intentType: string | undefined
   let status: WorkflowResult['status'] = 'completed'
+  let sandboxProviderUsed: string | undefined
 
   try {
     const client = await getAnthropicClient(input.userId, input.supabase)
@@ -117,6 +121,11 @@ export async function runChatWorkflow(input: ChatWorkflowInput): Promise<Workflo
     } else {
       status = await runExecutionPath({
         ...input,
+        preferredSandboxProvider: userExecution.sandboxProvider,
+        strictNoFallback: userExecution.strictNoFallback,
+        onSandboxProviderResolved: (provider) => {
+          sandboxProviderUsed = provider
+        },
         runId,
         usage,
         budget,
@@ -147,6 +156,18 @@ export async function runChatWorkflow(input: ChatWorkflowInput): Promise<Workflo
         usage,
       })
     }
+
+    await recordRunManifestArtifact({
+      ledger,
+      runId,
+      userId: input.userId,
+      conversationId: input.conversationId,
+      status,
+      intentType,
+      usage,
+      sandboxProviderUsed,
+      errorMessage: undefined,
+    })
   } catch (error) {
     status = 'failed'
     const message = error instanceof Error ? error.message : String(error)
@@ -155,6 +176,18 @@ export async function runChatWorkflow(input: ChatWorkflowInput): Promise<Workflo
       status: 'failed',
       intentType,
       usage,
+      errorMessage: message,
+    })
+
+    await recordRunManifestArtifact({
+      ledger,
+      runId,
+      userId: input.userId,
+      conversationId: input.conversationId,
+      status: 'failed',
+      intentType,
+      usage,
+      sandboxProviderUsed,
       errorMessage: message,
     })
   } finally {
@@ -257,6 +290,9 @@ async function runExecutionPath(input: {
   userId: string
   message: string
   conversationId: string
+  preferredSandboxProvider?: SandboxProviderPreference | null
+  strictNoFallback?: boolean
+  onSandboxProviderResolved?: (provider: string) => void
   fileIds?: string[]
   approval?: ApprovalInput
   send: (event: string, data: unknown) => void
@@ -300,8 +336,14 @@ async function runExecutionPath(input: {
 
   input.send('status', { stage: 'sandbox_starting' })
   const sandboxStepId = await input.ledger.startStep(input.runId, 'sandbox_start')
-  const sandbox = await getOrCreateSandbox(input.userId)
-  await input.ledger.completeStep(sandboxStepId, { success: true })
+  const { sandbox, provider } = await getOrCreateSandbox(
+    input.userId,
+    input.preferredSandboxProvider,
+    { strictNoFallback: input.strictNoFallback }
+  )
+  input.onSandboxProviderResolved?.(provider)
+  await input.ledger.completeStep(sandboxStepId, { success: true, provider })
+  input.send('status', { stage: 'sandbox_ready', provider })
 
   if (packages.length > 0) {
     input.send('status', { stage: 'installing', packages })
@@ -314,7 +356,7 @@ async function runExecutionPath(input: {
       runId: input.runId,
       runStepId: installStepId,
       toolName: 'sandbox_install',
-      provider: 'e2b',
+      provider,
       status: installResult.success ? 'completed' : 'failed',
       input: { packages, language: input.intent.language },
       output: { output: installResult.output.slice(0, 4000) },
@@ -350,7 +392,7 @@ async function runExecutionPath(input: {
 
       if (!fileData) continue
       const arrayBuf = await fileData.arrayBuffer()
-      await sandbox.files.write(`/home/user/${file.filename}`, new Blob([arrayBuf]))
+      await sandbox.writeFile(`/home/user/${file.filename}`, new Blob([arrayBuf]))
     }
 
     await input.ledger.completeStep(uploadStepId, { uploaded: input.fileIds.length })
@@ -426,6 +468,39 @@ async function runExecutionPath(input: {
     return 'awaiting_approval'
   }
 
+  const egressPolicy = evaluateEgressPolicy(code)
+  if (egressPolicy.enabled && egressPolicy.blockedHosts.length > 0) {
+    const blockedMessage =
+      'Execution blocked by egress policy. The generated code attempted outbound hosts outside your allowlist.'
+
+    input.send('checkpoint', {
+      type: 'policy_violation',
+      reason: 'Egress allowlist violation',
+      details: egressPolicy.blockedHosts,
+    })
+    input.send('error', {
+      message: `${blockedMessage} Blocked hosts: ${egressPolicy.blockedHosts.join(', ')}`,
+    })
+
+    await input.supabase.from('messages').insert({
+      conversation_id: input.conversationId,
+      role: 'assistant',
+      content: blockedMessage,
+      intent_type: input.intent.intent,
+      model_used: MODEL_LABEL,
+      metadata: {
+        checkpoint: {
+          type: 'policy_violation',
+          reason: 'Egress allowlist violation',
+          details: egressPolicy.blockedHosts,
+        },
+        egress_allowlist: egressPolicy.allowlist,
+      },
+    })
+
+    return 'awaiting_approval'
+  }
+
   input.send('status', { stage: 'executing' })
   const executeStepId = await input.ledger.startStep(input.runId, 'execute_code', {
     language: input.intent.language || 'python',
@@ -444,7 +519,7 @@ async function runExecutionPath(input: {
     runId: input.runId,
     runStepId: executeStepId,
     toolName: 'sandbox_execute',
-    provider: 'e2b',
+    provider,
     status: result.success ? 'completed' : 'failed',
     input: { language: input.intent.language || 'python' },
     output: {
@@ -473,7 +548,9 @@ async function runExecutionPath(input: {
       fileCount: result.files.length,
     })
     for (const file of result.files) {
-      const fileContent = await sandbox.files.read(file.path, { format: 'blob' })
+      const fileContentData = await sandbox.readFile(file.path, { format: 'blob' })
+      const fileContent =
+        fileContentData instanceof Blob ? fileContentData : new Blob([fileContentData])
       const contentType = inferContentType(file.name)
       const storagePath = `${input.userId}/${Date.now()}_${file.name}`
 
@@ -551,6 +628,7 @@ async function runExecutionPath(input: {
     sandbox_used: true,
     sandbox_duration_ms: result.executionTimeMs,
     metadata: {
+      sandbox_provider: provider,
       code,
       language: input.intent.language,
       packages_installed: packages,
@@ -576,20 +654,60 @@ async function runExecutionPath(input: {
     model: MODEL_LABEL,
   })
 
+  // Eager cleanup: destroy sandbox after execution completes.
+  // Files are already uploaded to Supabase, sandbox is no longer needed.
+  void destroySandbox(input.userId).catch(() => {})
+
   return 'completed'
 }
 
-async function getUserPlan(userId: string, supabase: SupabaseClient): Promise<PlanType> {
-  const { data: profile } = await supabase
+async function getUserExecutionSettings(
+  userId: string,
+  supabase: SupabaseClient
+): Promise<{
+  plan: PlanType
+  sandboxProvider: SandboxProviderPreference
+  strictNoFallback: boolean
+}> {
+  const { data: profileWithStrict, error: profileStrictError } = await supabase
     .from('profiles')
-    .select('plan')
+    .select('plan, sandbox_provider, strict_no_fallback')
     .eq('id', userId)
     .single()
 
-  if (profile?.plan === 'pro' || profile?.plan === 'dev') {
-    return profile.plan
+  let profile: {
+    plan?: string
+    sandbox_provider?: string
+    strict_no_fallback?: boolean
+  } | null = profileWithStrict as {
+    plan?: string
+    sandbox_provider?: string
+    strict_no_fallback?: boolean
+  } | null
+
+  if (profileStrictError) {
+    const { data: fallbackProfile } = await supabase
+      .from('profiles')
+      .select('plan, sandbox_provider')
+      .eq('id', userId)
+      .single()
+    profile = fallbackProfile as { plan?: string; sandbox_provider?: string } | null
   }
-  return 'free'
+
+  let plan: PlanType = 'free'
+  if (profile?.plan === 'pro' || profile?.plan === 'dev') {
+    plan = profile.plan
+  }
+
+  const sandboxProvider =
+    profile?.sandbox_provider === 'local_microvm'
+      ? 'local_microvm'
+      : profile?.sandbox_provider === 'remote_e2b'
+        ? 'remote_e2b'
+        : 'auto'
+  const strictNoFallback = Boolean(profile?.strict_no_fallback)
+
+  return { plan, sandboxProvider, strictNoFallback }
 }
 
 function getAnthropicText(message: { content: Array<{ type: string; text?: string }> }): string {
@@ -617,6 +735,48 @@ function inferContentType(filename: string): string {
     xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   }
   return mimeTypes[ext || ''] || 'application/octet-stream'
+}
+
+async function recordRunManifestArtifact(input: {
+  ledger: RunLedger
+  runId: string | null
+  userId: string
+  conversationId: string
+  status: 'completed' | 'failed' | 'awaiting_approval'
+  intentType?: string
+  usage: RunUsage
+  sandboxProviderUsed?: string
+  errorMessage?: string
+}) {
+  if (!input.runId) return
+
+  try {
+    const signed = buildSignedRunManifest({
+      runId: input.runId,
+      userId: input.userId,
+      conversationId: input.conversationId,
+      status: input.status,
+      intentType: input.intentType,
+      modelUsed: MODEL_LABEL,
+      usage: input.usage,
+      sandboxProvider: input.sandboxProviderUsed,
+      errorMessage: input.errorMessage,
+    })
+
+    await input.ledger.recordArtifact({
+      runId: input.runId,
+      artifactType: 'log',
+      name: 'run-manifest.json',
+      metadata: {
+        manifest: signed.manifest,
+        checksumSha256: signed.checksumSha256,
+        signature: signed.signature,
+        signatureAlgo: signed.signatureAlgo,
+      },
+    })
+  } catch (error) {
+    console.error('Failed to record run manifest artifact:', error)
+  }
 }
 
 function queueMemoryUpdate(

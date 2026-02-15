@@ -50,7 +50,8 @@ export default function LandingPage() {
             <Terminal className="h-8 w-8 text-forge-accent mb-4" />
             <h3 className="text-lg font-semibold text-forge-text mb-2">Sandboxed Environment</h3>
             <p className="text-forge-muted text-sm">
-              Each execution runs in an isolated E2B sandbox — safe, secure, disposable.
+              Each execution runs in an isolated runtime with configurable backends (remote sandbox
+              or local microVM control).
             </p>
           </div>
         </div>

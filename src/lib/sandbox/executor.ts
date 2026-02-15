@@ -1,4 +1,5 @@
-import { Sandbox } from '@e2b/code-interpreter'
+import { Buffer } from 'node:buffer'
+import type { SandboxRuntime } from '@/lib/sandbox/provider'
 import type { ExecutionResult } from '@/types/sandbox'
 
 // File extensions to detect as output files
@@ -12,9 +13,9 @@ const OUTPUT_EXTENSIONS = new Set([
  * Snapshot the filenames in /home/user/ before execution
  * so we can diff after and detect newly created files.
  */
-async function snapshotDirectory(sandbox: Sandbox): Promise<Set<string>> {
+async function snapshotDirectory(sandbox: SandboxRuntime): Promise<Set<string>> {
   try {
-    const entries = await sandbox.files.list('/home/user/')
+    const entries = await sandbox.listFiles('/home/user/')
     return new Set(entries.map((e) => e.name))
   } catch {
     return new Set()
@@ -26,7 +27,7 @@ async function snapshotDirectory(sandbox: Sandbox): Promise<Set<string>> {
  * by diffing a before/after directory snapshot.
  */
 async function detectNewFiles(
-  sandbox: Sandbox,
+  sandbox: SandboxRuntime,
   beforeSnapshot: Set<string>,
   excludeFilenames: string[]
 ): Promise<ExecutionResult['files']> {
@@ -34,7 +35,7 @@ async function detectNewFiles(
   const excludeSet = new Set(excludeFilenames)
 
   try {
-    const afterEntries = await sandbox.files.list('/home/user/')
+    const afterEntries = await sandbox.listFiles('/home/user/')
     for (const entry of afterEntries) {
       // Skip directories, existing files, and script files
       if (entry.type === 'dir') continue
@@ -59,7 +60,7 @@ async function detectNewFiles(
 }
 
 export async function executeCode(
-  sandbox: Sandbox,
+  sandbox: SandboxRuntime,
   code: string,
   language: string = 'python',
   options?: { timeoutMs?: number }
@@ -71,7 +72,7 @@ export async function executeCode(
     // Snapshot directory before execution to detect new files later
     const beforeSnapshot = await snapshotDirectory(sandbox)
 
-    if (language === 'python') {
+    if (language === 'python' && sandbox.runCode) {
       const execution = await sandbox.runCode(code, {
         timeoutMs,
       })
@@ -97,11 +98,8 @@ export async function executeCode(
         for (const result of execution.results) {
           if (result.png) {
             const filename = `output_${Date.now()}.png`
-            const pngBytes = Uint8Array.from(atob(result.png), c => c.charCodeAt(0))
-            await sandbox.files.write(
-              `/home/user/${filename}`,
-              new Blob([pngBytes])
-            )
+            const pngBytes = Buffer.from(result.png, 'base64')
+            await sandbox.writeFile(`/home/user/${filename}`, pngBytes)
             files.push({
               name: filename,
               path: `/home/user/${filename}`,
@@ -121,17 +119,24 @@ export async function executeCode(
         error: execution.error ? execution.error.traceback : undefined,
       }
     } else {
-      // JavaScript/bash via command
-      const ext = language === 'javascript' ? 'js' : 'sh'
+      // JavaScript/python/bash via command
+      const ext =
+        language === 'javascript'
+          ? 'js'
+          : language === 'python'
+            ? 'py'
+            : 'sh'
       const scriptFilename = `script_${Date.now()}.${ext}`
-      await sandbox.files.write(`/home/user/${scriptFilename}`, code)
+      await sandbox.writeFile(`/home/user/${scriptFilename}`, code)
 
       const cmd =
         language === 'javascript'
           ? `node /home/user/${scriptFilename}`
+          : language === 'python'
+            ? `python3 /home/user/${scriptFilename}`
           : `bash /home/user/${scriptFilename}`
 
-      const result = await sandbox.commands.run(cmd, { timeoutMs })
+      const result = await sandbox.runCommand(cmd, { timeoutMs })
 
       // Detect files written to disk by JS/bash scripts
       const diskFiles = await detectNewFiles(

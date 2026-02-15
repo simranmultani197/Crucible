@@ -12,6 +12,7 @@ const statusMessages: Record<string, string> = {
   discovering: 'Discovering tools...',
   tools_found: 'Tools found',
   sandbox_starting: 'Starting sandbox...',
+  sandbox_ready: 'Sandbox ready',
   installing: 'Installing packages...',
   uploading_files: 'Uploading files...',
   generating_code: 'Writing code...',

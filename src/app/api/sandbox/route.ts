@@ -13,7 +13,18 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const status = getSandboxStatus(user.id)
+  const { data: profileWithProvider, error: providerError } = await supabase
+    .from('profiles')
+    .select('sandbox_provider')
+    .eq('id', user.id)
+    .single()
+
+  let sandboxProvider: string | null | undefined = profileWithProvider?.sandbox_provider
+  if (providerError) {
+    sandboxProvider = null
+  }
+
+  const status = await getSandboxStatus(user.id, sandboxProvider)
   return NextResponse.json(status)
 }
 

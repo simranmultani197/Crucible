@@ -26,28 +26,29 @@ export function ChartModal({
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
-    useEffect(() => {
-        if (!url || !isOpen) {
-            setBlobUrl(null)
-            return
-        }
+	useEffect(() => {
+		if (!url || !isOpen) {
+			setBlobUrl(null)
+			return
+		}
 
-        let active = true
-        const fetchContent = async () => {
-            try {
-                setLoading(true)
-                setError(null)
-                const res = await fetch(url)
+		let active = true
+		let objectUrl: string | null = null
+		const fetchContent = async () => {
+			try {
+				setLoading(true)
+				setError(null)
+				const res = await fetch(url)
                 if (!res.ok) throw new Error('Failed to load chart')
 
-                const text = await res.text()
-                const blob = new Blob([text], { type: 'text/html; charset=utf-8' })
-                const objectUrl = URL.createObjectURL(blob)
+				const text = await res.text()
+				const blob = new Blob([text], { type: 'text/html; charset=utf-8' })
+				objectUrl = URL.createObjectURL(blob)
 
-                if (active) {
-                    setBlobUrl(objectUrl)
-                } else {
-                    URL.revokeObjectURL(objectUrl)
+				if (active) {
+					setBlobUrl(objectUrl)
+				} else {
+					URL.revokeObjectURL(objectUrl)
                 }
             } catch (err) {
                 if (active) setError('Failed to load chart content')
@@ -59,11 +60,11 @@ export function ChartModal({
 
         fetchContent()
 
-        return () => {
-            active = false
-            if (blobUrl) URL.revokeObjectURL(blobUrl)
-        }
-    }, [url, isOpen])
+		return () => {
+			active = false
+			if (objectUrl) URL.revokeObjectURL(objectUrl)
+		}
+	}, [url, isOpen])
 
     if (!url) return null
 
