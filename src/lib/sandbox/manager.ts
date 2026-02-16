@@ -1,10 +1,13 @@
 import { execFile } from 'node:child_process'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLocalMicroVMSandbox } from '@/lib/sandbox/providers/local-microvm'
 import { createRemoteE2BSandbox } from '@/lib/sandbox/providers/e2b'
 import type { SandboxRuntime } from '@/lib/sandbox/provider'
 import { probeLocalMicroVM } from '@/lib/sandbox/probe'
+import { WORKSPACE_LIMITS } from '@/lib/usage/constants'
 import type {
   LocalMicroVMProbeResult,
   SandboxProvider,
@@ -36,6 +39,105 @@ const LOCAL_MICROVM_FALLBACK_TO_REMOTE =
 const CLEANUP_INTERVAL_MS = 2 * 60 * 1000 // 2 minutes
 let cleanupStarted = false
 
+// ---------------------------------------------------------------------------
+// Local workspace persistence (local_microvm only — no network calls)
+// ---------------------------------------------------------------------------
+
+interface WorkspaceManifest {
+  files: Array<{ name: string; size: number }>
+  savedAt: string
+}
+
+function getWorkspaceDir(userId: string): string {
+  return join(homedir(), '.crucible', 'workspaces', userId.slice(0, 16))
+}
+
+export async function saveWorkspaceToLocal(
+  userId: string,
+  sandbox: SandboxRuntime
+): Promise<void> {
+  try {
+    const entries = await sandbox.listFiles('/home/user/')
+    const files = entries.filter(
+      (e) =>
+        e.type === 'file' &&
+        !e.name.startsWith('_crucible_') &&
+        !e.name.startsWith('script_')
+    )
+
+    if (files.length === 0) return
+
+    const wsDir = getWorkspaceDir(userId)
+    mkdirSync(wsDir, { recursive: true })
+
+    const manifest: WorkspaceManifest = { files: [], savedAt: new Date().toISOString() }
+    let totalSize = 0
+
+    // Sort by name, take newest up to limit
+    const candidates = files.slice(0, WORKSPACE_LIMITS.maxFiles)
+
+    for (const file of candidates) {
+      try {
+        const content = await sandbox.readFile(file.path, { format: 'blob' })
+        const blob = content instanceof Blob ? content : new Blob([content])
+        const size = blob.size
+
+        if (size > WORKSPACE_LIMITS.maxFileSizeBytes) continue
+        if (totalSize + size > WORKSPACE_LIMITS.maxTotalSizeBytes) break
+
+        const buf = Buffer.from(await blob.arrayBuffer())
+        writeFileSync(join(wsDir, file.name), buf)
+        manifest.files.push({ name: file.name, size })
+        totalSize += size
+      } catch {
+        // Skip unreadable files
+      }
+    }
+
+    writeFileSync(join(wsDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
+  } catch {
+    // Workspace save is best-effort — never block sandbox destruction
+  }
+}
+
+export async function restoreWorkspaceFromLocal(
+  userId: string,
+  sandbox: SandboxRuntime
+): Promise<number> {
+  const wsDir = getWorkspaceDir(userId)
+  const manifestPath = join(wsDir, 'manifest.json')
+
+  if (!existsSync(manifestPath)) return 0
+
+  try {
+    const raw = readFileSync(manifestPath, 'utf8')
+    const manifest: WorkspaceManifest = JSON.parse(raw)
+    let restored = 0
+
+    for (const file of manifest.files) {
+      const localPath = join(wsDir, file.name)
+      if (!existsSync(localPath)) continue
+
+      try {
+        const stat = statSync(localPath)
+        if (stat.size > WORKSPACE_LIMITS.maxFileSizeBytes) continue
+
+        const content = readFileSync(localPath)
+        await sandbox.writeFile(`/home/user/${file.name}`, content)
+        restored++
+      } catch {
+        // Skip unwritable files
+      }
+    }
+
+    return restored
+  } catch {
+    return 0
+  }
+}
+
+// ---------------------------------------------------------------------------
+
 function startSandboxCleanupTimer() {
   if (cleanupStarted) return
   cleanupStarted = true
@@ -47,9 +149,13 @@ function startSandboxCleanupTimer() {
     const entries = Array.from(activeSandboxes.entries())
     for (const [userId, session] of entries) {
       if (now - session.createdAt >= SANDBOX_TIMEOUT_MS) {
+        // Save workspace before destroying (local_microvm only)
+        if (session.provider === 'local_microvm') {
+          await saveWorkspaceToLocal(userId, session.sandbox)
+        }
         try {
           await session.sandbox.kill()
-        } catch {}
+        } catch { }
         activeSandboxes.delete(userId)
       }
     }
@@ -58,7 +164,7 @@ function startSandboxCleanupTimer() {
     try {
       const wrapper = join(process.cwd(), 'scripts', 'microvmctl.js')
       await execFileAsync(process.execPath, [wrapper, 'gc'], { timeout: 15000 })
-    } catch {}
+    } catch { }
   }, CLEANUP_INTERVAL_MS)
 }
 
@@ -159,9 +265,13 @@ export async function getOrCreateSandbox(
 
   // Clean up old sandbox if exists
   if (existing) {
+    // Save workspace before destroying (local_microvm only)
+    if (existing.provider === 'local_microvm') {
+      await saveWorkspaceToLocal(userId, existing.sandbox)
+    }
     try {
       await existing.sandbox.kill()
-    } catch {}
+    } catch { }
     activeSandboxes.delete(userId)
   }
 
@@ -181,6 +291,11 @@ export async function getOrCreateSandbox(
     }
   }
 
+  // Restore workspace files from local disk (local_microvm only)
+  if (providerUsed === 'local_microvm') {
+    await restoreWorkspaceFromLocal(userId, sandbox)
+  }
+
   activeSandboxes.set(userId, {
     sandbox,
     createdAt: Date.now(),
@@ -196,9 +311,13 @@ export async function getOrCreateSandbox(
 export async function destroySandbox(userId: string): Promise<void> {
   const session = activeSandboxes.get(userId)
   if (session) {
+    // Save workspace before destroying (local_microvm only)
+    if (session.provider === 'local_microvm') {
+      await saveWorkspaceToLocal(userId, session.sandbox)
+    }
     try {
       await session.sandbox.kill()
-    } catch {}
+    } catch { }
     activeSandboxes.delete(userId)
   }
 }

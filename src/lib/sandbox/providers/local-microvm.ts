@@ -218,6 +218,70 @@ class LocalMicroVMSandboxRuntime implements SandboxRuntime {
 
   constructor(private readonly cli: CLICommand, private readonly vmId: string) { }
 
+  async runCode(
+    code: string,
+    options: { timeoutMs: number }
+  ): Promise<import('@/lib/sandbox/provider').SandboxCodeResult> {
+    const scriptName = `_crucible_run_${Date.now()}.py`
+    const scriptPath = `/home/user/${scriptName}`
+
+    // 1. Snapshot /home/user/ for PNG diff
+    let beforePngs = new Set<string>()
+    try {
+      const entries = await this.listFiles('/home/user/')
+      beforePngs = new Set(
+        entries
+          .filter((e) => e.type === 'file' && e.name.endsWith('.png'))
+          .map((e) => e.name)
+      )
+    } catch { /* first run — dir may be empty */ }
+
+    // 2. Write code to sandbox
+    await this.writeFile(scriptPath, code)
+
+    // 3. Execute
+    const result = await this.runCommand(`python3 ${scriptPath}`, {
+      timeoutMs: options.timeoutMs,
+    })
+
+    // 4. Detect new PNGs created during execution
+    const results: Array<{ png?: string }> = []
+    try {
+      const afterEntries = await this.listFiles('/home/user/')
+      const newPngs = afterEntries.filter(
+        (e) => e.type === 'file' && e.name.endsWith('.png') && !beforePngs.has(e.name)
+      )
+      for (const png of newPngs) {
+        try {
+          const cliResult = await runCLI(
+            this.cli,
+            ['read', '--id', this.vmId, '--path', png.path, '--base64'],
+            { timeoutMs: 15000 }
+          )
+          if (cliResult.exitCode === 0 && cliResult.stdout.trim()) {
+            results.push({ png: cliResult.stdout.trim() })
+          }
+        } catch { /* skip unreadable files */ }
+      }
+    } catch { /* file detection is best-effort */ }
+
+    // 5. Cleanup temp script (best-effort)
+    this.runCommand(`rm -f ${scriptPath}`, { timeoutMs: 5000 }).catch(() => { })
+
+    const stdout = result.stdout || ''
+    const stderr = result.stderr || ''
+
+    return {
+      logs: {
+        stdout: stdout ? [stdout] : [],
+        stderr: stderr ? [stderr] : [],
+      },
+      text: stdout,
+      error: result.exitCode !== 0 ? { traceback: stderr } : null,
+      results,
+    }
+  }
+
   async runCommand(
     command: string,
     options: { timeoutMs: number }
