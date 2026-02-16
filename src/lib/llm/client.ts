@@ -17,13 +17,13 @@ export async function getAnthropicClient(
   // Fetch user's API key preference
   const { data: profile } = await supabase
     .from('profiles')
-    .select('anthropic_api_key, plan')
+    .select('anthropic_api_key')
     .eq('id', userId)
     .single()
 
   let apiKey: string
 
-  if (profile?.anthropic_api_key && profile.plan === 'dev') {
+  if (profile?.anthropic_api_key) {
     // BYOK: Use user's own key
     apiKey = profile.anthropic_api_key
   } else {

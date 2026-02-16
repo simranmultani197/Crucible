@@ -17,7 +17,7 @@ import { MemoryManager } from '@/lib/memory/manager'
 import { RunLedger, type RunUsage, type RunBudget } from '@/lib/runs/ledger'
 import { buildSignedRunManifest } from '@/lib/runs/manifest'
 import { evaluateEgressPolicy } from '@/lib/security/egress'
-import type { PlanType } from '@/lib/usage/constants'
+import type { BudgetOverrides } from '@/lib/usage/budgets'
 import type { SandboxProviderPreference } from '@/types/sandbox'
 import { executeToolCall, getAllTools } from '@/lib/llm/tools'
 import { mcpManager } from '@/lib/mcp/manager'
@@ -73,7 +73,7 @@ export async function runChatWorkflow(input: ChatWorkflowInput): Promise<Workflo
   const hasAttachment = Boolean(input.fileIds && input.fileIds.length > 0)
   const ledger = new RunLedger(input.supabase)
   const userExecution = await getUserExecutionSettings(input.userId, input.supabase)
-  const budget = buildRunBudget(userExecution.plan)
+  const budget = buildRunBudget(userExecution.budgetOverrides)
   const usage: RunUsage = {
     inputTokens: 0,
     outputTokens: 0,
@@ -361,15 +361,8 @@ async function runAgentLoop(input: {
   memoryManager: MemoryManager
   ledger: RunLedger
 }): Promise<'completed' | 'awaiting_approval'> {
-  // 1. Check sandbox access
-  const sandboxOk = await checkSandboxAccess(input.userId, input.supabase)
-  if (!sandboxOk) {
-    input.send('text', {
-      chunk:
-        'Sandbox execution requires a Pro or Dev plan. You can add your own Anthropic API key in Settings to unlock sandbox features for free.',
-    })
-    return 'completed'
-  }
+  // 1. Check sandbox access (always enabled in open-source)
+  await checkSandboxAccess(input.userId, input.supabase)
 
   // 2. Start sandbox (persists across all iterations)
   input.send('status', { stage: 'sandbox_starting' })
@@ -770,14 +763,8 @@ async function runExecutionPath(input: {
   memoryManager: MemoryManager
   ledger: RunLedger
 }): Promise<'completed' | 'awaiting_approval'> {
-  const sandboxOk = await checkSandboxAccess(input.userId, input.supabase)
-  if (!sandboxOk) {
-    input.send('text', {
-      chunk:
-        'Sandbox execution requires a Pro or Dev plan. You can add your own Anthropic API key in Settings to unlock sandbox features for free.',
-    })
-    return 'completed'
-  }
+  // Sandbox access is always enabled in open-source
+  await checkSandboxAccess(input.userId, input.supabase)
 
   input.send('status', { stage: 'discovering' })
   const discoveryStepId = await input.ledger.startStep(input.runId, 'discover_tools', {
@@ -1133,38 +1120,33 @@ async function getUserExecutionSettings(
   userId: string,
   supabase: SupabaseClient
 ): Promise<{
-  plan: PlanType
+  budgetOverrides?: BudgetOverrides
   sandboxProvider: SandboxProviderPreference
   strictNoFallback: boolean
 }> {
   const { data: profileWithStrict, error: profileStrictError } = await supabase
     .from('profiles')
-    .select('plan, sandbox_provider, strict_no_fallback')
+    .select('sandbox_provider, strict_no_fallback, budget_settings')
     .eq('id', userId)
     .single()
 
   let profile: {
-    plan?: string
     sandbox_provider?: string
     strict_no_fallback?: boolean
+    budget_settings?: BudgetOverrides | null
   } | null = profileWithStrict as {
-    plan?: string
     sandbox_provider?: string
     strict_no_fallback?: boolean
+    budget_settings?: BudgetOverrides | null
   } | null
 
   if (profileStrictError) {
     const { data: fallbackProfile } = await supabase
       .from('profiles')
-      .select('plan, sandbox_provider')
+      .select('sandbox_provider')
       .eq('id', userId)
       .single()
-    profile = fallbackProfile as { plan?: string; sandbox_provider?: string } | null
-  }
-
-  let plan: PlanType = 'free'
-  if (profile?.plan === 'pro' || profile?.plan === 'dev') {
-    plan = profile.plan
+    profile = fallbackProfile as { sandbox_provider?: string } | null
   }
 
   const sandboxProvider =
@@ -1174,8 +1156,9 @@ async function getUserExecutionSettings(
         ? 'remote_e2b'
         : 'auto'
   const strictNoFallback = Boolean(profile?.strict_no_fallback)
+  const budgetOverrides = profile?.budget_settings ?? undefined
 
-  return { plan, sandboxProvider, strictNoFallback }
+  return { budgetOverrides, sandboxProvider, strictNoFallback }
 }
 
 function getAnthropicText(message: { content: Array<{ type: string; text?: string }> }): string {

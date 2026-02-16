@@ -16,7 +16,7 @@ export async function GET() {
   } = await supabase
     .from('profiles')
     .select(
-      'plan, preferred_model, sandbox_provider, strict_no_fallback, daily_sessions_used, monthly_tokens_used, monthly_sandbox_seconds_used, anthropic_api_key'
+      'preferred_model, sandbox_provider, strict_no_fallback, daily_sessions_used, monthly_tokens_used, monthly_sandbox_seconds_used, anthropic_api_key, budget_settings'
     )
     .eq('id', user.id)
     .single()
@@ -28,7 +28,7 @@ export async function GET() {
     const { data: fallbackProfile } = await supabase
       .from('profiles')
       .select(
-        'plan, preferred_model, sandbox_provider, daily_sessions_used, monthly_tokens_used, monthly_sandbox_seconds_used, anthropic_api_key'
+        'preferred_model, sandbox_provider, daily_sessions_used, monthly_tokens_used, monthly_sandbox_seconds_used, anthropic_api_key'
       )
       .eq('id', user.id)
       .single()
@@ -56,7 +56,7 @@ export async function GET() {
   })
 }
 
-// PUT: Update settings (including BYOK key)
+// PUT: Update settings (including BYOK key and budget controls)
 export async function PUT(req: NextRequest) {
   const supabase = await createServerSupabaseClient()
   const {
@@ -71,6 +71,7 @@ export async function PUT(req: NextRequest) {
     'anthropic_api_key',
     'sandbox_provider',
     'strict_no_fallback',
+    'budget_settings',
   ]
   const updates: Record<string, unknown> = {}
 
@@ -92,18 +93,14 @@ export async function PUT(req: NextRequest) {
         max_tokens: 10,
         messages: [{ role: 'user', content: 'test' }],
       })
-
-      // If key is valid, upgrade plan to 'dev'
-      updates.plan = 'dev'
     } catch {
       return NextResponse.json({ error: 'Invalid API key' }, { status: 400 })
     }
   }
 
-  // If removing API key, downgrade plan
+  // If removing API key, set to null
   if (body.anthropic_api_key === null || body.anthropic_api_key === '') {
     updates.anthropic_api_key = null
-    updates.plan = 'free'
   }
 
   if (
@@ -122,6 +119,29 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid strict_no_fallback value' }, { status: 400 })
   }
 
+  // Validate budget_settings if provided
+  if (updates.budget_settings !== undefined && updates.budget_settings !== null) {
+    const bs = updates.budget_settings as Record<string, unknown>
+    if (typeof bs !== 'object') {
+      return NextResponse.json({ error: 'Invalid budget_settings' }, { status: 400 })
+    }
+    // Clamp values to safe ranges
+    const sanitized: Record<string, number> = {}
+    if (bs.maxAgentIterations != null) {
+      sanitized.maxAgentIterations = Math.max(1, Math.min(25, Number(bs.maxAgentIterations)))
+    }
+    if (bs.maxCostUsd != null) {
+      sanitized.maxCostUsd = Math.max(0.5, Math.min(50, Number(bs.maxCostUsd)))
+    }
+    if (bs.maxSandboxMs != null) {
+      sanitized.maxSandboxMs = Math.max(60_000, Math.min(30 * 60_000, Number(bs.maxSandboxMs)))
+    }
+    if (bs.maxTokensPerSession != null) {
+      sanitized.maxTokensPerSession = Math.max(10_000, Math.min(500_000, Number(bs.maxTokensPerSession)))
+    }
+    updates.budget_settings = sanitized
+  }
+
   let { error } = await supabase.from('profiles').update(updates).eq('id', user.id)
 
   if (
@@ -131,6 +151,18 @@ export async function PUT(req: NextRequest) {
   ) {
     const retryUpdates = { ...updates }
     delete retryUpdates.strict_no_fallback
+    const retry = await supabase.from('profiles').update(retryUpdates).eq('id', user.id)
+    error = retry.error
+  }
+
+  // Handle budget_settings column not existing yet
+  if (
+    error &&
+    updates.budget_settings !== undefined &&
+    /budget_settings/i.test(error.message)
+  ) {
+    const retryUpdates = { ...updates }
+    delete retryUpdates.budget_settings
     const retry = await supabase.from('profiles').update(retryUpdates).eq('id', user.id)
     error = retry.error
   }

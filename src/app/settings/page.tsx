@@ -6,7 +6,7 @@ import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useUserStore } from '@/stores/userStore'
-import { ArrowLeft, Key, BarChart3, Shield, Cpu } from 'lucide-react'
+import { ArrowLeft, Key, BarChart3, Shield, Cpu, Gauge } from 'lucide-react'
 import Link from 'next/link'
 import { useToast } from '@/hooks/use-toast'
 
@@ -51,6 +51,13 @@ export default function SettingsPage() {
     exportAllowed: boolean
   } | null>(null)
   const { toast } = useToast()
+  const [budgetSaving, setBudgetSaving] = useState(false)
+  const [budgetValues, setBudgetValues] = useState({
+    maxAgentIterations: 16,
+    maxCostUsd: 15,
+    maxSandboxMs: 10 * 60_000,
+    maxTokensPerSession: 200_000,
+  })
 
   const fetchMemorySettings = useCallback(async () => {
     try {
@@ -178,7 +185,7 @@ export default function SettingsPage() {
             ? 'Local microVM mode selected. On macOS you can use a local worker VM via limactl, or SSH Linux worker.'
             : provider === 'auto'
               ? 'Auto mode selected. Forge will pick local microVM when ready, otherwise remote E2B.'
-            : 'Remote E2B sandbox selected.',
+              : 'Remote E2B sandbox selected.',
       })
     } catch (error) {
       toast({
@@ -295,6 +302,18 @@ export default function SettingsPage() {
     fetchSandboxStatus()
     fetchSetupGuide()
     void runMicrovmProbe({ silent: true })
+    // Load budget settings from profile
+    void (async () => {
+      try {
+        const res = await fetch('/api/settings')
+        if (res.ok) {
+          const data = await res.json()
+          if (data.budget_settings) {
+            setBudgetValues((prev) => ({ ...prev, ...data.budget_settings }))
+          }
+        }
+      } catch { /* best-effort */ }
+    })()
   }, [fetchSettings, fetchMemorySettings, fetchSandboxStatus, fetchSetupGuide, runMicrovmProbe])
 
   const handleSaveMemorySettings = async () => {
@@ -406,6 +425,30 @@ export default function SettingsPage() {
         description: error instanceof Error ? error.message : 'Failed to export run audit',
         variant: 'destructive',
       })
+    }
+  }
+
+  const handleSaveBudget = async () => {
+    setBudgetSaving(true)
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ budget_settings: budgetValues }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to save budget')
+      }
+      toast({ title: 'Budget controls saved', description: 'Your per-session limits are now active.' })
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to save budget',
+        variant: 'destructive',
+      })
+    } finally {
+      setBudgetSaving(false)
     }
   }
 
@@ -582,20 +625,18 @@ export default function SettingsPage() {
 
               <div className="flex flex-wrap gap-2">
                 <span
-                  className={`text-xs rounded-full px-2 py-1 border ${
-                    localReady
-                      ? 'border-green-500/50 text-green-300'
-                      : 'border-yellow-500/50 text-yellow-300'
-                  }`}
+                  className={`text-xs rounded-full px-2 py-1 border ${localReady
+                    ? 'border-green-500/50 text-green-300'
+                    : 'border-yellow-500/50 text-yellow-300'
+                    }`}
                 >
                   {localReady ? 'Ready' : 'Needs setup'}
                 </span>
                 <span
-                  className={`text-xs rounded-full px-2 py-1 border ${
-                    fallbackActive
-                      ? 'border-amber-500/50 text-amber-300'
-                      : 'border-forge-border text-forge-muted'
-                  }`}
+                  className={`text-xs rounded-full px-2 py-1 border ${fallbackActive
+                    ? 'border-amber-500/50 text-amber-300'
+                    : 'border-forge-border text-forge-muted'
+                    }`}
                 >
                   {fallbackActive ? 'Fallback active' : 'Fallback inactive'}
                 </span>
@@ -603,11 +644,10 @@ export default function SettingsPage() {
                   Active provider: {sandboxStatus?.provider || 'none'}
                 </span>
                 <span
-                  className={`text-xs rounded-full px-2 py-1 border ${
-                    settings?.strict_no_fallback
-                      ? 'border-red-500/50 text-red-300'
-                      : 'border-forge-border text-forge-muted'
-                  }`}
+                  className={`text-xs rounded-full px-2 py-1 border ${settings?.strict_no_fallback
+                    ? 'border-red-500/50 text-red-300'
+                    : 'border-forge-border text-forge-muted'
+                    }`}
                 >
                   {settings?.strict_no_fallback
                     ? 'Advanced Security Mode'
@@ -640,11 +680,10 @@ export default function SettingsPage() {
 
               {probeResult && (
                 <div
-                  className={`rounded-md border px-3 py-2 text-xs ${
-                    probeResult.ok
-                      ? 'border-green-500/40 bg-green-500/10 text-green-300'
-                      : 'border-red-500/40 bg-red-500/10 text-red-300'
-                  }`}
+                  className={`rounded-md border px-3 py-2 text-xs ${probeResult.ok
+                    ? 'border-green-500/40 bg-green-500/10 text-green-300'
+                    : 'border-red-500/40 bg-red-500/10 text-red-300'
+                    }`}
                 >
                   <p>
                     Probe: {probeResult.ok ? 'Ready' : 'Not ready'}
@@ -677,11 +716,11 @@ export default function SettingsPage() {
                   {probeResult.transport === 'local' &&
                     probeResult.backendReady === false &&
                     probeResult.backend?.includes('limactl shell') && (
-                    <p>
-                      Try: `limactl start forge-worker` then `npm run microvm:probe`. If this
-                      keeps failing, run `npm run microvm:setup:macos` again.
-                    </p>
-                  )}
+                      <p>
+                        Try: `limactl start forge-worker` then `npm run microvm:probe`. If this
+                        keeps failing, run `npm run microvm:setup:macos` again.
+                      </p>
+                    )}
                   {probeResult.limaAutoStartAttempted && (
                     <p>Auto-recovery attempted: started Lima instance before re-probing.</p>
                   )}
@@ -690,11 +729,11 @@ export default function SettingsPage() {
                   )}
                   {probeResult.transport === 'hyperv' &&
                     probeResult.hypervBackendFound === false && (
-                    <p>
-                      Install/configure Hyper-V backend command. Set `LOCAL_MICROVM_HYPERV_CLI` if
-                      needed.
-                    </p>
-                  )}
+                      <p>
+                        Install/configure Hyper-V backend command. Set `LOCAL_MICROVM_HYPERV_CLI` if
+                        needed.
+                      </p>
+                    )}
                   {probeResult.backendFound !== undefined && (
                     <p>Local backend found: {probeResult.backendFound ? 'yes' : 'no'}</p>
                   )}
@@ -748,9 +787,9 @@ export default function SettingsPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-forge-bg rounded-lg p-4">
-                  <p className="text-xs text-forge-muted uppercase tracking-wider">Plan</p>
-                  <p className="text-lg font-semibold text-forge-text capitalize mt-1">
-                    {settings?.plan || 'free'}
+                  <p className="text-xs text-forge-muted uppercase tracking-wider">API Key</p>
+                  <p className="text-lg font-semibold text-forge-text mt-1">
+                    {settings?.anthropic_api_key ? 'BYOK' : 'Platform'}
                   </p>
                 </div>
                 <div className="bg-forge-bg rounded-lg p-4">
@@ -786,6 +825,103 @@ export default function SettingsPage() {
                   className="border-forge-border text-forge-text"
                 >
                   Export Run Audit
+                </Button>
+              </div>
+            </div>
+
+            {/* Budget Controls */}
+            <div className="bg-forge-card border border-forge-border rounded-lg p-6 space-y-4">
+              <div className="flex items-center gap-2">
+                <Gauge className="h-5 w-5 text-forge-accent" />
+                <h2 className="text-lg font-semibold text-forge-text">Budget Controls</h2>
+              </div>
+              <p className="text-sm text-forge-muted">
+                Configure per-session limits. You control costs via your own API key.
+              </p>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm text-forge-text">Max Agent Iterations</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={25}
+                    value={budgetValues.maxAgentIterations}
+                    onChange={(e) =>
+                      setBudgetValues((prev) => ({
+                        ...prev,
+                        maxAgentIterations: Number(e.target.value || 16),
+                      }))
+                    }
+                    className="bg-forge-bg border-forge-border text-forge-text"
+                  />
+                  <p className="text-xs text-forge-muted">How many times the agent can iterate (1–25)</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm text-forge-text">Max Cost per Session ($)</label>
+                  <Input
+                    type="number"
+                    min={0.5}
+                    max={50}
+                    step={0.5}
+                    value={budgetValues.maxCostUsd}
+                    onChange={(e) =>
+                      setBudgetValues((prev) => ({
+                        ...prev,
+                        maxCostUsd: Number(e.target.value || 15),
+                      }))
+                    }
+                    className="bg-forge-bg border-forge-border text-forge-text"
+                  />
+                  <p className="text-xs text-forge-muted">USD cap per session ($0.50–$50)</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm text-forge-text">Max Sandbox Time (min)</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={Math.round(budgetValues.maxSandboxMs / 60_000)}
+                    onChange={(e) =>
+                      setBudgetValues((prev) => ({
+                        ...prev,
+                        maxSandboxMs: Number(e.target.value || 10) * 60_000,
+                      }))
+                    }
+                    className="bg-forge-bg border-forge-border text-forge-text"
+                  />
+                  <p className="text-xs text-forge-muted">Sandbox time limit per session (1–30 min)</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm text-forge-text">Max Tokens per Session</label>
+                  <Input
+                    type="number"
+                    min={10000}
+                    max={500000}
+                    step={10000}
+                    value={budgetValues.maxTokensPerSession}
+                    onChange={(e) =>
+                      setBudgetValues((prev) => ({
+                        ...prev,
+                        maxTokensPerSession: Number(e.target.value || 200000),
+                      }))
+                    }
+                    className="bg-forge-bg border-forge-border text-forge-text"
+                  />
+                  <p className="text-xs text-forge-muted">Token budget per session (10K–500K)</p>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <Button
+                  onClick={handleSaveBudget}
+                  disabled={budgetSaving}
+                  className="bg-forge-accent hover:bg-forge-accent/90 text-white"
+                >
+                  {budgetSaving ? 'Saving...' : 'Save Budget Settings'}
                 </Button>
               </div>
             </div>

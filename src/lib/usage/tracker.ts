@@ -1,21 +1,17 @@
 import { SupabaseClient } from '@supabase/supabase-js'
-import { PLAN_LIMITS } from './constants'
+import { DEFAULT_LIMITS } from './constants'
 
 export async function checkRateLimit(
   userId: string,
   supabase: SupabaseClient
 ): Promise<boolean> {
-  // Get user profile
   const { data: profile } = await supabase
     .from('profiles')
-    .select('plan, daily_sessions_used, daily_sessions_reset_at')
+    .select('daily_sessions_used, daily_sessions_reset_at')
     .eq('id', userId)
     .single()
 
   if (!profile) return false
-
-  const plan = profile.plan as keyof typeof PLAN_LIMITS
-  const limits = PLAN_LIMITS[plan]
 
   // Reset daily counter if needed
   const resetAt = new Date(profile.daily_sessions_reset_at)
@@ -33,23 +29,15 @@ export async function checkRateLimit(
     return true
   }
 
-  return profile.daily_sessions_used < limits.dailySessions
+  return profile.daily_sessions_used < DEFAULT_LIMITS.dailySessions
 }
 
 export async function checkSandboxAccess(
-  userId: string,
-  supabase: SupabaseClient
+  _userId: string,
+  _supabase: SupabaseClient
 ): Promise<boolean> {
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('plan')
-    .eq('id', userId)
-    .single()
-
-  if (!profile) return false
-
-  const plan = profile.plan as keyof typeof PLAN_LIMITS
-  return PLAN_LIMITS[plan].sandboxEnabled
+  // Open source: sandbox is always enabled for all users
+  return true
 }
 
 export async function trackUsage(
@@ -107,7 +95,7 @@ function estimateCost(usage: {
 }): number {
   const rates: Record<string, { input: number; output: number }> = {
     'haiku-4.5': { input: 1 / 1_000_000, output: 5 / 1_000_000 },
-    'sonnet-4.5': { input: 3 / 1_000_000, output: 15 / 1_000_000 },
+    'sonnet-4': { input: 3 / 1_000_000, output: 15 / 1_000_000 },
   }
   const rate = rates[usage.model] || rates['haiku-4.5']
   return usage.tokensIn * rate.input + usage.tokensOut * rate.output

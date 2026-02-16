@@ -1,30 +1,13 @@
 import { SupabaseClient } from '@supabase/supabase-js'
-import { PLAN_LIMITS } from './constants'
 
+/**
+ * Open-source: quota enforcement is disabled.
+ * Users self-host and control costs via their own API keys.
+ * Budget controls in Settings UI handle per-session limits instead.
+ */
 export async function enforceQuota(
-  userId: string,
-  supabase: SupabaseClient
+  _userId: string,
+  _supabase: SupabaseClient
 ): Promise<{ allowed: boolean; reason?: string }> {
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('plan, monthly_tokens_used, monthly_sandbox_seconds_used, monthly_reset_at')
-    .eq('id', userId)
-    .single()
-
-  if (!profile) {
-    return { allowed: false, reason: 'Profile not found' }
-  }
-
-  const plan = profile.plan as keyof typeof PLAN_LIMITS
-  const limits = PLAN_LIMITS[plan]
-
-  // Check monthly token budget
-  if (profile.monthly_tokens_used >= limits.monthlyTokenBudget) {
-    return {
-      allowed: false,
-      reason: 'Monthly token budget exceeded. Upgrade your plan or add your own API key.',
-    }
-  }
-
   return { allowed: true }
 }

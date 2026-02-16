@@ -1,4 +1,4 @@
-<![CDATA[<div align="center">
+<div align="center">
 
 # ⚒️ Forge
 
@@ -29,31 +29,39 @@ Most AI coding tools run your code in **Docker containers** — which share the 
 ## Features
 
 ### 🧠 Agent Loop
+
 Multi-step reasoning powered by **Claude Sonnet 4** with native `tool_use`. The agent writes code, executes it, reads results, and iterates — up to 16 iterations per session.
 
 ### 🏖️ Dual Sandbox Providers
+
 - **Local MicroVM** — Firecracker / krunvm on your machine (macOS, Linux, Windows)
 - **Remote E2B** — Cloud sandboxes via [E2B](https://e2b.dev) (zero setup)
 - **Auto mode** — Probes for local MicroVM, falls back to E2B if unavailable
 
 ### 💾 Memory System
+
 Persistent memory across conversations — facts, preferences, goals, and constraints are extracted and recalled automatically.
 
 ### 📊 Run Ledger & Audit Trail
+
 Every agent step is logged with timing, token counts, tool calls, and costs. Export full audit manifests per session.
 
 ### 💰 Budget Controls
-Per-plan limits on tokens, cost (USD), sandbox time, and agent iterations. Supports Free, Dev, and Pro tiers.
+
+Configurable per-session limits on tokens, cost (USD), sandbox time, and agent iterations — all adjustable from the Settings UI.
 
 ### 🔒 Security
+
 - **Egress allowlist** — Control which domains the sandbox can reach
 - **Code risk inspection** — Auto-flags dangerous patterns (network calls, file system access)
 - **Strict no-fallback** — Prevent falling back to remote when local MicroVM is preferred
 
 ### 🔌 MCP Integration
+
 [Model Context Protocol](https://modelcontextprotocol.io/) support for external tool discovery and execution.
 
 ### 🎨 Chat Interface
+
 Real-time SSE streaming with syntax-highlighted code, interactive chart previews (Plotly HTML), file downloads, and agent thinking indicators.
 
 ## Tech Stack
@@ -117,12 +125,13 @@ Real-time SSE streaming with syntax-highlighted code, interactive chart previews
 ### Quickstart
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/forge.git
-cd forge
+git clone https://github.com/simranmultani197/termless.git
+cd termless
 npm run quickstart
 ```
 
 The quickstart script will:
+
 1. Validate your Node.js version
 2. Create `.env.local` if missing
 3. Prompt for required API keys
@@ -297,4 +306,3 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 ## License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
-]]>

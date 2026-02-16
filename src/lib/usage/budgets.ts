@@ -1,4 +1,4 @@
-import { PLAN_LIMITS, type PlanType } from './constants'
+import { DEFAULT_LIMITS } from './constants'
 import type { RunBudget, RunUsage } from '@/lib/runs/ledger'
 
 const MODEL_RATES: Record<string, { input: number; output: number }> = {
@@ -22,43 +22,59 @@ const RISK_PATTERNS: Array<{ regex: RegExp; reason: string }> = [
   { regex: /\bexec\s*\(/, reason: 'Dynamic exec execution detected.' },
 ]
 
+/** User-configurable budget overrides (stored in profiles.budget_settings JSON) */
+export interface BudgetOverrides {
+  maxAgentIterations?: number
+  maxCostUsd?: number
+  maxSandboxMs?: number
+  maxTokensPerSession?: number
+}
+
 function readPositiveNumber(raw: string | undefined): number | undefined {
   if (!raw) return undefined
   const parsed = Number(raw)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
 }
 
-function getBudgetOverride(key: string, plan: PlanType): number | undefined {
-  const planSpecific = readPositiveNumber(
-    process.env[`RUN_BUDGET_${key}_${plan.toUpperCase()}`]
-  )
-  if (planSpecific !== undefined) return planSpecific
+function getEnvOverride(key: string): number | undefined {
   return readPositiveNumber(process.env[`RUN_BUDGET_${key}`])
 }
 
-export function buildRunBudget(plan: PlanType): RunBudget {
-  const limits = PLAN_LIMITS[plan]
-
+/**
+ * Build a run budget using generous defaults.
+ * Accepts optional user overrides from the Settings UI.
+ * Env var overrides (RUN_BUDGET_*) take final precedence.
+ */
+export function buildRunBudget(overrides?: BudgetOverrides): RunBudget {
   const defaults = {
-    maxTotalTokens: limits.maxTokensPerSession,
-    maxOutputTokens: Math.min(plan === 'dev' ? 8192 : 6144, limits.maxTokensPerSession),
-    maxSandboxMs: Math.min(
-      plan === 'dev' ? 8 * 60_000 : plan === 'pro' ? 5 * 60_000 : 2 * 60_000,
-      limits.sessionTimeoutMs
-    ),
-    maxCostUsd: plan === 'dev' ? 15 : plan === 'pro' ? 3 : 0.5,
-    maxAgentIterations: plan === 'dev' ? 16 : plan === 'pro' ? 10 : 4,
+    maxTotalTokens: DEFAULT_LIMITS.maxTokensPerSession,
+    maxOutputTokens: 8192,
+    maxSandboxMs: 10 * 60_000, // 10 minutes
+    maxCostUsd: 15,
+    maxAgentIterations: 16,
   }
 
-  const maxTotalTokens = getBudgetOverride('MAX_TOTAL_TOKENS', plan) ?? defaults.maxTotalTokens
-  const maxOutputTokens =
-    Math.floor(getBudgetOverride('MAX_OUTPUT_TOKENS', plan) ?? defaults.maxOutputTokens)
-  const maxSandboxMs =
-    Math.floor(getBudgetOverride('MAX_SANDBOX_MS', plan) ?? defaults.maxSandboxMs)
-  const maxCostUsd = getBudgetOverride('MAX_COST_USD', plan) ?? defaults.maxCostUsd
+  // Layer 1: User overrides from Settings UI
+  const withUserOverrides = {
+    maxTotalTokens: overrides?.maxTokensPerSession ?? defaults.maxTotalTokens,
+    maxOutputTokens: defaults.maxOutputTokens,
+    maxSandboxMs: overrides?.maxSandboxMs ?? defaults.maxSandboxMs,
+    maxCostUsd: overrides?.maxCostUsd ?? defaults.maxCostUsd,
+    maxAgentIterations: overrides?.maxAgentIterations ?? defaults.maxAgentIterations,
+  }
+
+  // Layer 2: Env var overrides take final precedence
+  const maxTotalTokens = getEnvOverride('MAX_TOTAL_TOKENS') ?? withUserOverrides.maxTotalTokens
+  const maxOutputTokens = Math.floor(
+    getEnvOverride('MAX_OUTPUT_TOKENS') ?? withUserOverrides.maxOutputTokens
+  )
+  const maxSandboxMs = Math.floor(
+    getEnvOverride('MAX_SANDBOX_MS') ?? withUserOverrides.maxSandboxMs
+  )
+  const maxCostUsd = getEnvOverride('MAX_COST_USD') ?? withUserOverrides.maxCostUsd
   const maxAgentIterations = Math.max(
     1,
-    Math.floor(getBudgetOverride('MAX_AGENT_ITERATIONS', plan) ?? defaults.maxAgentIterations)
+    Math.floor(getEnvOverride('MAX_AGENT_ITERATIONS') ?? withUserOverrides.maxAgentIterations)
   )
 
   return {
