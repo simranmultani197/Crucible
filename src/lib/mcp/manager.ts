@@ -172,7 +172,7 @@ class MCPClientManager {
     })
 
     const client = new Client(
-      { name: 'forge', version: '1.0.0' },
+      { name: 'crucible', version: '1.0.0' },
       { capabilities: {} }
     )
 

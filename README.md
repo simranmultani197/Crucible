@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚒️ Forge
+# 🧪 Crucible
 
 **AI Execution Platform with Hardware-Isolated Sandboxes**
 
@@ -15,11 +15,11 @@ An open-source AI agent that writes, executes, and iterates on code inside Micro
 
 ---
 
-## Why Forge?
+## Why Crucible?
 
-Most AI coding tools run your code in **Docker containers** — which share the host kernel and have a [well-documented history of container escapes](https://www.cybereason.com/blog/container-escape). Forge uses **hardware-isolated MicroVMs** (Firecracker / krunvm / Lima) that boot a separate guest kernel, giving you near-native security without the overhead of full VMs.
+Most AI coding tools run your code in **Docker containers** — which share the host kernel and have a [well-documented history of container escapes](https://www.cybereason.com/blog/container-escape). Crucible uses **hardware-isolated MicroVMs** (Firecracker / krunvm / Lima) that boot a separate guest kernel, giving you near-native security without the overhead of full VMs.
 
-| | Docker | Forge (MicroVM) |
+| | Docker | Crucible (MicroVM) |
 | :--- | :--- | :--- |
 | Kernel | Shared with host ❌ | Separate guest kernel ✅ |
 | Escape risk | Container escapes are real | VM escapes are extremely rare |
@@ -160,7 +160,7 @@ NODE_ENV=development
 # Optional — Sandbox provider
 SANDBOX_PROVIDER=auto                              # auto | local_microvm | remote_e2b
 LOCAL_MICROVM_TRANSPORT=local                      # local | ssh
-LOCAL_MICROVM_BACKEND_CLI=limactl shell forge-worker -- microvmctl
+LOCAL_MICROVM_BACKEND_CLI=limactl shell crucible-worker -- microvmctl
 LOCAL_MICROVM_FALLBACK_TO_REMOTE=true              # fallback to E2B if local fails
 
 # Optional — MCP (Model Context Protocol)
@@ -283,7 +283,7 @@ scripts/
 
 ## Database Setup
 
-Forge uses Supabase with 7 migrations:
+Crucible uses Supabase with 7 migrations:
 
 1. `001_initial_schema` — Users, conversations, messages
 2. `002_run_ledger` — Execution audit trail

@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
-echo "[forge] quickstart"
+echo "[crucible] quickstart"
 
 if ! command -v node >/dev/null 2>&1; then
   echo "Node.js is required. Install Node 20 first." >&2
@@ -62,7 +62,7 @@ ensure_env() {
   value="$(get_env_value "${name}")"
 
   if [[ -z "${value}" || "${value}" == "https://your-project-id.supabase.co" || "${value}" == your-* ]]; then
-    echo "[forge] ${name} is missing."
+    echo "[crucible] ${name} is missing."
     printf "%s: " "${prompt}"
     read -r value
     if [[ -z "${value}" ]]; then
@@ -70,7 +70,7 @@ ensure_env() {
       exit 1
     fi
     upsert_env "${name}" "${value}"
-    echo "[forge] wrote ${name} to .env.local"
+    echo "[crucible] wrote ${name} to .env.local"
   fi
 }
 
@@ -78,14 +78,14 @@ ensure_env "NEXT_PUBLIC_SUPABASE_URL" "Enter Supabase URL (https://<project>.sup
 ensure_env "NEXT_PUBLIC_SUPABASE_ANON_KEY" "Enter Supabase anon key"
 
 if [[ ! -d "node_modules" ]]; then
-  echo "[forge] installing dependencies..."
+  echo "[crucible] installing dependencies..."
   npm install
 fi
 
-echo "[forge] running local runtime probe (non-blocking)..."
+echo "[crucible] running local runtime probe (non-blocking)..."
 if ! npm run -s microvm:probe; then
-  echo "[forge] microvm probe failed. Auto mode can still use remote_e2b."
+  echo "[crucible] microvm probe failed. Auto mode can still use remote_e2b."
 fi
 
-echo "[forge] starting dev server at http://localhost:3000"
+echo "[crucible] starting dev server at http://localhost:3000"
 exec npm run dev:clean

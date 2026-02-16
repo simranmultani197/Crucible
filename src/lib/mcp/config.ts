@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 /**
- * Configuration for an MCP server that Forge can connect to.
+ * Configuration for an MCP server that Crucible can connect to.
  * Built from MCP Registry search results.
  */
 export interface MCPServerConfig {

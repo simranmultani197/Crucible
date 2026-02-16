@@ -1,6 +1,6 @@
 # Local MicroVM Quickstart (Cross-Platform)
 
-This setup lets Forge use local microVM where available, while preserving smooth fallback.
+This setup lets Crucible use local microVM where available, while preserving smooth fallback.
 
 ## 1) Pick Backend Mode in App Settings
 - Open `/settings`
@@ -9,7 +9,7 @@ This setup lets Forge use local microVM where available, while preserving smooth
 
 ## 2) Configure Environment
 
-### Linux host running Forge directly
+### Linux host running Crucible directly
 Use a local backend command:
 
 ```bash
@@ -24,20 +24,20 @@ One-command bootstrap:
 bash scripts/linux/install-worker.sh
 ```
 
-### macOS (Apple Silicon) running Forge - host-local worker VM
+### macOS (Apple Silicon) running Crucible - host-local worker VM
 Use Lima/VZ local worker VM (no external SSH host):
 
 ```bash
 SANDBOX_PROVIDER=auto
 LOCAL_MICROVM_TRANSPORT=local
-LOCAL_MICROVM_BACKEND_CLI="limactl shell forge-worker -- microvmctl"
+LOCAL_MICROVM_BACKEND_CLI="limactl shell crucible-worker -- microvmctl"
 LOCAL_MICROVM_FALLBACK_TO_REMOTE=true
 ```
 
 Bootstrap command:
 ```bash
 bash scripts/macos/install-krunvm-worker.sh
-limactl start forge-worker
+limactl start crucible-worker
 ```
 
 ### macOS/Windows alternative fallback

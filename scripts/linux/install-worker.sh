@@ -12,15 +12,15 @@ if ! command -v microvmctl >/dev/null 2>&1; then
   exit 1
 fi
 
-SERVICE_NAME="forge-microvm-worker.service"
+SERVICE_NAME="crucible-microvm-worker.service"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}"
-SERVICE_CMD="${FORGE_MICROVM_SERVICE_CMD:-$(command -v microvmctl) health --watch}"
+SERVICE_CMD="${CRUCIBLE_MICROVM_SERVICE_CMD:-$(command -v microvmctl) health --watch}"
 
 echo "Installing ${SERVICE_NAME} using command: ${SERVICE_CMD}"
 
 sudo tee "${SERVICE_FILE}" >/dev/null <<EOF
 [Unit]
-Description=Forge MicroVM Worker
+Description=Crucible MicroVM Worker
 After=network.target
 
 [Service]

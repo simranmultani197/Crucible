@@ -10,7 +10,7 @@ if (-not $Args -or $Args.Count -eq 0) {
   exit 1
 }
 
-$backend = $env:FORGE_HYPERV_BACKEND_COMMAND
+$backend = $env:CRUCIBLE_HYPERV_BACKEND_COMMAND
 if ([string]::IsNullOrWhiteSpace($backend)) {
   $backend = "hyperv-microvmctl-backend"
 }
@@ -25,7 +25,7 @@ if ($backendParts.Count -gt 1) {
 $cmd = Get-Command $backendCmd -ErrorAction SilentlyContinue
 if (-not $cmd) {
   Write-Error "Hyper-V backend command not found: $backendCmd"
-  Write-Host "Set FORGE_HYPERV_BACKEND_COMMAND to your implementation command."
+  Write-Host "Set CRUCIBLE_HYPERV_BACKEND_COMMAND to your implementation command."
   exit 1
 }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_BASE="/var/tmp/forge-sandboxes"
+ROOT_BASE="/var/tmp/crucible-sandboxes"
 
 usage() {
   cat <<'USAGE'
@@ -96,7 +96,7 @@ shift
 
 if [[ "${command}" == "probe" ]]; then
   cat <<'JSON'
-{"controller":"forge-local-worker","ready":true}
+{"controller":"crucible-local-worker","ready":true}
 JSON
   exit 0
 fi
@@ -207,7 +207,7 @@ case "${command}" in
     fi
 
     export HOME="${sandbox_home}"
-    export FORGE_SANDBOX_HOME="${sandbox_home}"
+    export CRUCIBLE_SANDBOX_HOME="${sandbox_home}"
 
     # Ensure /home/user -> sandbox_home symlink so hardcoded absolute paths
     # in generated code (e.g. plt.savefig('/home/user/chart.png')) resolve

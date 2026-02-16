@@ -17,7 +17,7 @@ if ! command -v brew >/dev/null 2>&1; then
   exit 1
 fi
 
-INSTANCE_NAME="${LOCAL_MICROVM_LIMA_INSTANCE:-forge-worker}"
+INSTANCE_NAME="${LOCAL_MICROVM_LIMA_INSTANCE:-crucible-worker}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKER_SCRIPT="${SCRIPT_DIR}/microvmctl-worker.sh"
 
@@ -53,10 +53,10 @@ limactl shell "${INSTANCE_NAME}" -- sudo chmod +x /usr/local/bin/microvmctl
 
 echo "Running smoke test..."
 limactl shell "${INSTANCE_NAME}" -- microvmctl probe >/dev/null
-limactl shell "${INSTANCE_NAME}" -- microvmctl create --id forge-smoke --ttl-ms 5000
-limactl shell "${INSTANCE_NAME}" -- microvmctl exec --id forge-smoke --timeout-ms 5000 -- sh -lc 'echo ok >/home/user/probe.txt'
-limactl shell "${INSTANCE_NAME}" -- microvmctl read --id forge-smoke --path /home/user/probe.txt --base64 >/dev/null
-limactl shell "${INSTANCE_NAME}" -- microvmctl kill --id forge-smoke
+limactl shell "${INSTANCE_NAME}" -- microvmctl create --id crucible-smoke --ttl-ms 5000
+limactl shell "${INSTANCE_NAME}" -- microvmctl exec --id crucible-smoke --timeout-ms 5000 -- sh -lc 'echo ok >/home/user/probe.txt'
+limactl shell "${INSTANCE_NAME}" -- microvmctl read --id crucible-smoke --path /home/user/probe.txt --base64 >/dev/null
+limactl shell "${INSTANCE_NAME}" -- microvmctl kill --id crucible-smoke
 
 echo ""
 echo "Local worker VM is ready. Configure your environment:"
@@ -69,4 +69,4 @@ echo "Optional (safer rollout):"
 echo "  SANDBOX_PROVIDER=auto"
 echo "  LOCAL_MICROVM_FALLBACK_TO_REMOTE=true"
 echo ""
-echo "Then restart Forge and run: npm run microvm:probe"
+echo "Then restart Crucible and run: npm run microvm:probe"

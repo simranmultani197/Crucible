@@ -216,7 +216,7 @@ function parseListOutput(raw: string, basePath: string): SandboxFileEntry[] {
 class LocalMicroVMSandboxRuntime implements SandboxRuntime {
   provider = 'local_microvm' as const
 
-  constructor(private readonly cli: CLICommand, private readonly vmId: string) {}
+  constructor(private readonly cli: CLICommand, private readonly vmId: string) { }
 
   async runCommand(
     command: string,
@@ -306,14 +306,14 @@ class LocalMicroVMSandboxRuntime implements SandboxRuntime {
 function formatLocalMicroVMError(cli: CLICommand, stderr: string): string {
   const detail = stderr.trim()
   const suffix = detail ? ` (${detail})` : ''
-  return `local_microvm provider unavailable via "${cli.display}". Configure a local backend controller (for macOS use LOCAL_MICROVM_BACKEND_CLI="limactl shell forge-worker -- microvmctl") or use SSH transport${suffix}`
+  return `local_microvm provider unavailable via "${cli.display}". Configure a local backend controller (for macOS use LOCAL_MICROVM_BACKEND_CLI="limactl shell crucible-worker -- microvmctl") or use SSH transport${suffix}`
 }
 
 export async function createLocalMicroVMSandbox(
   input: SandboxCreateInput
 ): Promise<SandboxRuntime> {
   const cli = resolveCLICommand()
-  const vmId = `forge-${input.userId.slice(0, 8)}-${randomUUID().slice(0, 8)}`
+  const vmId = `crucible-${input.userId.slice(0, 8)}-${randomUUID().slice(0, 8)}`
 
   try {
     const createResult = await runCLI(
@@ -335,7 +335,7 @@ export async function createLocalMicroVMSandbox(
       (error as { code?: string }).code === 'ENOENT'
     ) {
       throw new Error(
-        `local_microvm provider unavailable: command "${cli.display}" not found. Install/configure LOCAL_MICROVM_BACKEND_CLI (macOS: limactl shell forge-worker -- microvmctl) or use SSH transport.`
+        `local_microvm provider unavailable: command "${cli.display}" not found. Install/configure LOCAL_MICROVM_BACKEND_CLI (macOS: limactl shell crucible-worker -- microvmctl) or use SSH transport.`
       )
     }
     throw error

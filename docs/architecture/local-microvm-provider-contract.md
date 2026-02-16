@@ -1,13 +1,13 @@
 # Local MicroVM Provider Contract
 
-Forge supports `sandbox_provider = local_microvm` via a controller command.
+Crucible supports `sandbox_provider = local_microvm` via a controller command.
 
 Default command now uses the bundled wrapper:
 `node scripts/microvmctl.js`
 
 This makes macOS/Windows/Linux use the same app-level integration while letting you choose transport:
 - Linux: direct local backend command
-- macOS (Apple Silicon): host-local worker VM via `limactl shell forge-worker -- microvmctl`
+- macOS (Apple Silicon): host-local worker VM via `limactl shell crucible-worker -- microvmctl`
 - Windows/macOS fallback: SSH forwarding to a Linux microVM host
 
 ## Why This Exists
@@ -26,7 +26,7 @@ Wrapper transport selection:
 - If unset: wrapper auto-picks `ssh` when `LOCAL_MICROVM_SSH_HOST` is set, else tries local backend.
 
 Local backend config:
-- `LOCAL_MICROVM_BACKEND_CLI` (default: Linux `microvmctl`, macOS `limactl shell forge-worker -- microvmctl`)
+- `LOCAL_MICROVM_BACKEND_CLI` (default: Linux `microvmctl`, macOS `limactl shell crucible-worker -- microvmctl`)
 
 Windows Hyper-V config:
 - `LOCAL_MICROVM_HYPERV_CLI` (default: `hyperv-microvmctl`)
@@ -83,7 +83,7 @@ microvmctl kill --id <vm_id>
 
 ## Notes
 - `auto` is the recommended default for smooth UX: prefer local microVM when ready, else remote E2B.
-- If `sandbox_provider` is `local_microvm` and create fails, Forge falls back to `remote_e2b` by default.
+- If `sandbox_provider` is `local_microvm` and create fails, Crucible falls back to `remote_e2b` by default.
 - To enforce strict local-only execution, set `LOCAL_MICROVM_FALLBACK_TO_REMOTE=false`.
 - Per-user strict mode is available via Settings (`strict_no_fallback`).
 - The bundled wrapper also supports a probe command:

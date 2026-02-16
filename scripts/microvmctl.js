@@ -24,7 +24,7 @@ function printUsage() {
       '',
       'Examples:',
       '  node scripts/microvmctl.js create --id test --ttl-ms 60000',
-      '  LOCAL_MICROVM_BACKEND_CLI="limactl shell forge-worker -- microvmctl" node scripts/microvmctl.js probe',
+      '  LOCAL_MICROVM_BACKEND_CLI="limactl shell crucible-worker -- microvmctl" node scripts/microvmctl.js probe',
       '  LOCAL_MICROVM_TRANSPORT=ssh LOCAL_MICROVM_SSH_HOST=10.0.0.2 node scripts/microvmctl.js list --id test --path /home/user --json',
       '',
     ].join('\n')
@@ -33,7 +33,7 @@ function printUsage() {
 
 function defaultBackendSpec() {
   if (process.platform === 'darwin') {
-    return 'limactl shell forge-worker -- microvmctl'
+    return 'limactl shell crucible-worker -- microvmctl'
   }
   return 'microvmctl'
 }
