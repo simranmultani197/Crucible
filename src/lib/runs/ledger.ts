@@ -7,6 +7,7 @@ export interface RunBudget {
   maxOutputTokens: number
   maxSandboxMs: number
   maxCostUsd: number
+  maxAgentIterations: number
 }
 
 export interface RunUsage {

@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import { User, Bot } from 'lucide-react'
 import { CodeBlock } from './CodeBlock'
 import { SandboxOutput } from './SandboxOutput'
+import { AgentThinking } from './AgentThinking'
 import type { Message } from '@/types/chat'
 
 interface MessageBubbleProps {
@@ -79,6 +80,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             language={meta.language}
             checkpoint={meta.checkpoint}
           />
+        )}
+
+        {/* Agent Thinking Steps */}
+        {!isUser && meta?.thinkingSteps && meta.thinkingSteps.length > 0 && (
+          <AgentThinking steps={meta.thinkingSteps} />
         )}
 
         {/* Timestamp */}

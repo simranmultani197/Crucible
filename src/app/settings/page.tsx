@@ -24,6 +24,7 @@ export default function SettingsPage() {
     backend?: string
     backendReady?: boolean | null
     backendProbeError?: string
+    limaAutoStartAttempted?: boolean
     remoteCLI?: string
     backendFound?: boolean
     hypervBackendFound?: boolean
@@ -212,6 +213,7 @@ export default function SettingsPage() {
         backend: data?.details?.backend,
         backendReady: data?.details?.backendReady,
         backendProbeError: data?.details?.backendProbeError,
+        limaAutoStartAttempted: data?.details?.limaAutoStartAttempted,
         remoteCLI: data?.details?.remoteCLI,
         backendFound: data?.details?.backendFound,
         hypervBackendFound: data?.details?.hypervBackendFound,
@@ -671,6 +673,17 @@ export default function SettingsPage() {
                       Local backend command was found but is not ready.
                       {probeResult.backendProbeError ? ` ${probeResult.backendProbeError}` : ''}
                     </p>
+                  )}
+                  {probeResult.transport === 'local' &&
+                    probeResult.backendReady === false &&
+                    probeResult.backend?.includes('limactl shell') && (
+                    <p>
+                      Try: `limactl start forge-worker` then `npm run microvm:probe`. If this
+                      keeps failing, run `npm run microvm:setup:macos` again.
+                    </p>
+                  )}
+                  {probeResult.limaAutoStartAttempted && (
+                    <p>Auto-recovery attempted: started Lima instance before re-probing.</p>
                   )}
                   {probeResult.transport === 'ssh' && probeResult.remoteCLI && (
                     <p>Remote CLI expected: {probeResult.remoteCLI}</p>

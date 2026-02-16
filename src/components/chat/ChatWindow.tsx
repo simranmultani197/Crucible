@@ -156,6 +156,26 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
                   })
                   setLoading(false)
                   break
+                case 'thinking':
+                  updateLastMessageMetadata({
+                    thinkingSteps: [
+                      ...(useChatStore.getState().messages.slice(-1)[0]?.metadata?.thinkingSteps || []),
+                      parsed.text,
+                    ],
+                  })
+                  break
+                case 'tool_call':
+                  setSandboxStatus(
+                    parsed.source === 'mcp'
+                      ? `mcp:${parsed.toolName}`
+                      : `tool:${parsed.toolName}`
+                  )
+                  setLoading(true)
+                  break
+                case 'tool_result':
+                  break
+                case 'mcp_status':
+                  break
                 case 'error':
                   accumulatedText += `\n\nError: ${parsed.message}`
                   updateLastMessage(accumulatedText)

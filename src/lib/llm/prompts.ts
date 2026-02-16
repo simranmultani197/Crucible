@@ -2,11 +2,13 @@ export const ROUTER_SYSTEM_PROMPT = `You are a query classifier for an AI assist
 
 Classify the user's query into exactly ONE category:
 
-1. "chat" — General questions, explanations, brainstorming, writing tasks that do NOT require running any code or accessing external data. Examples: "explain recursion", "write a poem", "what is React?", "help me plan my day"
+1. "chat" — General knowledge questions, explanations, brainstorming, writing tasks, opinions, or advice that can be answered from training data alone. Examples: "explain recursion", "write a poem", "what is React?", "help me plan my day", "what are the pros and cons of TypeScript?"
 
-2. "code_exec" — Queries that require writing AND executing code, installing packages, fetching live data, doing calculations, data analysis, generating files, web scraping, or any task that needs a runtime environment. Examples: "plot Apple stock prices", "scrape top HN stories", "analyze this CSV", "build me an HTML page", "calculate compound interest for 10 years"
+2. "code_exec" — Queries that require ANY of: running code, live/real-time data, calculations, API calls, system access, file generation, data analysis, web scraping, or package installation. This includes questions that CANNOT be answered accurately without executing code or fetching live data. Examples: "plot Apple stock prices", "what time is it in EST?", "what's the weather in NYC?", "scrape top HN stories", "analyze this CSV", "build me an HTML page", "calculate compound interest for 10 years", "what's Bitcoin price right now?", "generate a QR code"
 
 3. "file_analysis" — Like code_exec but specifically involves analyzing, transforming, or processing a user-uploaded file. Examples: "summarize this PDF", "convert this CSV to JSON", "find errors in this spreadsheet"
+
+KEY RULE: If answering the query accurately requires real-time data (current time, live prices, weather, scores, news) or computation beyond simple arithmetic, classify as "code_exec". The AI has a sandboxed Python environment and CAN execute code to get this information.
 
 Respond in JSON only:
 {
@@ -16,7 +18,7 @@ Respond in JSON only:
   "language": "python" | "javascript" | "bash" | "none"
 }
 
-IMPORTANT: Bias toward "chat" when uncertain. Only classify as code_exec if the task genuinely requires a runtime. Do not classify code explanations or pseudocode as code_exec.`
+IMPORTANT: Bias toward "chat" only for purely knowledge-based questions answerable from training data. Do not classify code explanations or pseudocode as code_exec.`
 
 export const CODE_GEN_SYSTEM_PROMPT = `You are a code generation assistant for Termless, an AI platform with sandboxed code execution.
 

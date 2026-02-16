@@ -33,6 +33,10 @@ function parseProbeDetails(stdout: string): LocalMicroVMProbeResult['details'] {
         typeof parsed.backendProbeError === 'string'
           ? parsed.backendProbeError
           : undefined,
+      limaAutoStartAttempted:
+        typeof parsed.limaAutoStartAttempted === 'boolean'
+          ? parsed.limaAutoStartAttempted
+          : undefined,
       hypervBackendFound:
         typeof parsed.hypervBackendFound === 'boolean'
           ? parsed.hypervBackendFound

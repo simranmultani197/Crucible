@@ -58,6 +58,12 @@ function buildSteps(
           'Use LOCAL_MICROVM_TRANSPORT=local and LOCAL_MICROVM_BACKEND_CLI="limactl shell forge-worker -- microvmctl".',
       },
       {
+        title: 'Start local worker VM',
+        description:
+          'If probe shows connection reset/handshake errors, start the Lima instance and retry.',
+        command: 'limactl start forge-worker',
+      },
+      {
         title: 'Probe readiness',
         description: 'Run probe and re-test in Settings.',
         command: 'npm run microvm:probe',

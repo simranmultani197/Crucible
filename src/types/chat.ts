@@ -21,6 +21,15 @@ export interface Message {
       reason: string
       details?: string[]
     }
+    // Agent loop metadata
+    agentIterations?: number
+    thinkingSteps?: string[]
+    toolCalls?: Array<{
+      toolName: string
+      success: boolean
+      output?: string
+      source?: 'sandbox' | 'mcp'
+    }>
   }
   isStreaming?: boolean
   createdAt: string
@@ -40,7 +49,19 @@ export interface ChatRequest {
   fileIds?: string[]
 }
 
-export type SSEEventType = 'status' | 'text' | 'code' | 'output' | 'file' | 'checkpoint' | 'error' | 'done'
+export type SSEEventType =
+  | 'status'
+  | 'text'
+  | 'code'
+  | 'output'
+  | 'file'
+  | 'checkpoint'
+  | 'error'
+  | 'done'
+  | 'thinking'
+  | 'tool_call'
+  | 'tool_result'
+  | 'mcp_status'
 
 export interface SSEEvent {
   event: SSEEventType

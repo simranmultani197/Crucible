@@ -9,6 +9,7 @@ export interface LocalMicroVMProbeDetails {
   backendFound?: boolean
   backendReady?: boolean | null
   backendProbeError?: string
+  limaAutoStartAttempted?: boolean
   hypervBackendFound?: boolean
   sshHostConfigured?: boolean
   remoteCLI?: string

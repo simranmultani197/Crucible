@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type Anthropic from '@anthropic-ai/sdk'
 import { classifyIntent } from '@/lib/llm/router'
 import { discoverTools, getPackagesToInstall } from '@/lib/tools/discovery'
 import { getOrCreateSandbox, installPackages, destroySandbox } from '@/lib/sandbox/manager'
@@ -13,14 +14,34 @@ import {
 } from '@/lib/usage/budgets'
 import { getAnthropicClient } from '@/lib/llm/client'
 import { MemoryManager } from '@/lib/memory/manager'
-import { RunLedger, type RunUsage } from '@/lib/runs/ledger'
+import { RunLedger, type RunUsage, type RunBudget } from '@/lib/runs/ledger'
 import { buildSignedRunManifest } from '@/lib/runs/manifest'
 import { evaluateEgressPolicy } from '@/lib/security/egress'
 import type { PlanType } from '@/lib/usage/constants'
 import type { SandboxProviderPreference } from '@/types/sandbox'
+import { executeToolCall, getAllTools } from '@/lib/llm/tools'
+import { mcpManager } from '@/lib/mcp/manager'
+import { isMCPEnabled } from '@/lib/mcp/config'
+import {
+  AGENT_ORCHESTRATOR_SYSTEM_PROMPT,
+  buildOrchestratorMessages,
+} from '@/lib/llm/agent-prompts'
 
-const MODEL_ID = 'claude-haiku-4-5-20251001'
-const MODEL_LABEL = 'haiku-4.5'
+// ---------------------------------------------------------------------------
+// Model configuration
+// ---------------------------------------------------------------------------
+
+const HAIKU_MODEL_ID = 'claude-haiku-4-5-20251001'
+const HAIKU_MODEL_LABEL = 'haiku-4.5'
+const SONNET_MODEL_ID = 'claude-sonnet-4-20250514'
+const SONNET_MODEL_LABEL = 'sonnet-4'
+
+// Feature flag — set AGENT_LOOP_ENABLED=false to revert to legacy pipeline
+const AGENT_LOOP_ENABLED = process.env.AGENT_LOOP_ENABLED !== 'false'
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface ApprovalInput {
   allowDangerousActions?: boolean
@@ -34,12 +55,18 @@ interface ChatWorkflowInput {
   fileIds?: string[]
   approval?: ApprovalInput
   send: (event: string, data: unknown) => void
+  /** Abort signal — fires when the browser disconnects */
+  signal?: AbortSignal
 }
 
 interface WorkflowResult {
   runId: string | null
   status: 'completed' | 'failed' | 'awaiting_approval'
 }
+
+// ---------------------------------------------------------------------------
+// Main orchestrator
+// ---------------------------------------------------------------------------
 
 export async function runChatWorkflow(input: ChatWorkflowInput): Promise<WorkflowResult> {
   const startTime = Date.now()
@@ -57,7 +84,7 @@ export async function runChatWorkflow(input: ChatWorkflowInput): Promise<Workflo
   const runId = await ledger.createRun({
     userId: input.userId,
     conversationId: input.conversationId,
-    modelUsed: MODEL_LABEL,
+    modelUsed: HAIKU_MODEL_LABEL,
     budget,
   })
 
@@ -108,6 +135,7 @@ export async function runChatWorkflow(input: ChatWorkflowInput): Promise<Workflo
     input.send('status', { stage: 'classified', intent: intent.intent })
 
     if (intent.intent === 'chat') {
+      // Simple chat stays on Haiku — fast and cheap
       await runChatPath({
         ...input,
         runId,
@@ -118,7 +146,26 @@ export async function runChatWorkflow(input: ChatWorkflowInput): Promise<Workflo
         memoryManager,
         ledger,
       })
+    } else if (AGENT_LOOP_ENABLED) {
+      // Agent loop with Sonnet + tool_use
+      status = await runAgentLoop({
+        ...input,
+        preferredSandboxProvider: userExecution.sandboxProvider,
+        strictNoFallback: userExecution.strictNoFallback,
+        onSandboxProviderResolved: (provider) => {
+          sandboxProviderUsed = provider
+        },
+        runId,
+        usage,
+        budget,
+        history,
+        intent,
+        client,
+        memoryManager,
+        ledger,
+      })
     } else {
+      // Legacy linear pipeline (fallback)
       status = await runExecutionPath({
         ...input,
         preferredSandboxProvider: userExecution.sandboxProvider,
@@ -201,6 +248,10 @@ export async function runChatWorkflow(input: ChatWorkflowInput): Promise<Workflo
   return { runId, status }
 }
 
+// ---------------------------------------------------------------------------
+// Chat path — simple Haiku streaming (unchanged)
+// ---------------------------------------------------------------------------
+
 async function runChatPath(input: {
   supabase: SupabaseClient
   userId: string
@@ -222,7 +273,7 @@ async function runChatPath(input: {
   const startedAt = Date.now()
 
   const streamResponse = input.client.messages.stream({
-    model: MODEL_ID,
+    model: HAIKU_MODEL_ID,
     max_tokens: input.budget.maxOutputTokens,
     messages: [...input.history, { role: 'user', content: input.message }],
   })
@@ -237,7 +288,7 @@ async function runChatPath(input: {
   const content = getAnthropicText(finalMessage)
   const tokensIn = finalMessage.usage.input_tokens ?? 0
   const tokensOut = finalMessage.usage.output_tokens ?? 0
-  const cost = estimateUsageCostUsd(MODEL_LABEL, tokensIn, tokensOut)
+  const cost = estimateUsageCostUsd(HAIKU_MODEL_LABEL, tokensIn, tokensOut)
 
   input.usage.inputTokens += tokensIn
   input.usage.outputTokens += tokensOut
@@ -264,7 +315,7 @@ async function runChatPath(input: {
     role: 'assistant',
     content,
     intent_type: 'chat',
-    model_used: MODEL_LABEL,
+    model_used: HAIKU_MODEL_LABEL,
     tokens_in: tokensIn,
     tokens_out: tokensOut,
   })
@@ -281,9 +332,422 @@ async function runChatPath(input: {
     eventType: 'chat',
     tokensIn,
     tokensOut,
-    model: MODEL_LABEL,
+    model: HAIKU_MODEL_LABEL,
   })
 }
+
+// ---------------------------------------------------------------------------
+// Agent Loop — Sonnet orchestrator with tool_use (NEW)
+// ---------------------------------------------------------------------------
+
+async function runAgentLoop(input: {
+  supabase: SupabaseClient
+  userId: string
+  message: string
+  conversationId: string
+  preferredSandboxProvider?: SandboxProviderPreference | null
+  strictNoFallback?: boolean
+  onSandboxProviderResolved?: (provider: string) => void
+  fileIds?: string[]
+  approval?: ApprovalInput
+  send: (event: string, data: unknown) => void
+  signal?: AbortSignal
+  runId: string | null
+  usage: RunUsage
+  budget: RunBudget
+  history: Array<{ role: 'user' | 'assistant'; content: string }>
+  intent: Awaited<ReturnType<typeof classifyIntent>>
+  client: Awaited<ReturnType<typeof getAnthropicClient>>
+  memoryManager: MemoryManager
+  ledger: RunLedger
+}): Promise<'completed' | 'awaiting_approval'> {
+  // 1. Check sandbox access
+  const sandboxOk = await checkSandboxAccess(input.userId, input.supabase)
+  if (!sandboxOk) {
+    input.send('text', {
+      chunk:
+        'Sandbox execution requires a Pro or Dev plan. You can add your own Anthropic API key in Settings to unlock sandbox features for free.',
+    })
+    return 'completed'
+  }
+
+  // 2. Start sandbox (persists across all iterations)
+  input.send('status', { stage: 'sandbox_starting' })
+  const sandboxStepId = await input.ledger.startStep(input.runId, 'sandbox_start')
+  const { sandbox, provider } = await getOrCreateSandbox(
+    input.userId,
+    input.preferredSandboxProvider,
+    { strictNoFallback: input.strictNoFallback }
+  )
+  input.onSandboxProviderResolved?.(provider)
+  await input.ledger.completeStep(sandboxStepId, { success: true, provider })
+  input.send('status', { stage: 'sandbox_ready', provider })
+
+  // 3. Upload user files to sandbox
+  if (input.fileIds && input.fileIds.length > 0) {
+    input.send('status', { stage: 'uploading_files' })
+    const uploadStepId = await input.ledger.startStep(input.runId, 'upload_files', {
+      fileCount: input.fileIds.length,
+    })
+
+    for (const fileId of input.fileIds) {
+      const { data: file } = await input.supabase
+        .from('files')
+        .select('*')
+        .eq('id', fileId)
+        .single()
+
+      if (!file) continue
+
+      const { data: fileData } = await input.supabase.storage
+        .from('user-files')
+        .download(file.storage_path)
+
+      if (!fileData) continue
+      const arrayBuf = await fileData.arrayBuffer()
+      await sandbox.writeFile(`/home/user/${file.filename}`, new Blob([arrayBuf]))
+    }
+
+    await input.ledger.completeStep(uploadStepId, { uploaded: input.fileIds.length })
+  }
+
+  // 4. Build orchestrator messages (KV-cache-friendly ordering)
+  const orchestratorMessages = buildOrchestratorMessages(
+    input.history,
+    input.message,
+    Boolean(input.fileIds && input.fileIds.length > 0)
+  )
+
+  // 4.5. Dynamic MCP server discovery based on user query
+  if (isMCPEnabled()) {
+    input.send('status', { stage: 'discovering_tools' })
+    try {
+      await mcpManager.discoverForQuery(input.message)
+    } catch (error) {
+      console.warn('[MCP] Discovery failed, continuing with sandbox tools:', error)
+    }
+  }
+
+  // 4.6. Build merged tool list (sandbox + any discovered MCP tools)
+  const allTools = getAllTools()
+
+  // 5. Agent loop
+  const maxIterations = input.budget.maxAgentIterations
+  let anthropicMessages: Anthropic.Messages.MessageParam[] = orchestratorMessages.map(
+    (m) => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    })
+  )
+
+  const allFilesCreated: Array<{ name: string; path: string; size: number }> = []
+  let totalSandboxMs = 0
+  let finalTextContent = ''
+  const allCodeGenerated: string[] = []
+  let totalIterations = 0
+
+  for (let iteration = 0; iteration < maxIterations; iteration++) {
+    totalIterations = iteration + 1
+
+    // Abort check — browser disconnected
+    if (input.signal?.aborted) {
+      break
+    }
+
+    // Budget check before each iteration
+    if (isBudgetExceeded(input.usage, input.budget)) {
+      input.send('error', {
+        message: 'Budget exceeded during agent execution. Results shown are from completed iterations.',
+      })
+      break
+    }
+
+    input.send('status', {
+      stage: 'agent_thinking',
+      iteration: iteration + 1,
+      maxIterations,
+    })
+
+    const agentStepId = await input.ledger.startStep(
+      input.runId,
+      `agent_iteration_${iteration + 1}`,
+      { iteration: iteration + 1 }
+    )
+
+    // Call Sonnet with tools (non-streaming for tool iterations)
+    const startedAt = Date.now()
+    const response = await input.client.messages.create({
+      model: SONNET_MODEL_ID,
+      max_tokens: input.budget.maxOutputTokens,
+      system: AGENT_ORCHESTRATOR_SYSTEM_PROMPT,
+      tools: allTools as Anthropic.Messages.Tool[],
+      messages: anthropicMessages,
+    })
+
+    // Track token usage
+    const tokensIn = response.usage.input_tokens ?? 0
+    const tokensOut = response.usage.output_tokens ?? 0
+    const cost = estimateUsageCostUsd(SONNET_MODEL_LABEL, tokensIn, tokensOut)
+    input.usage.inputTokens += tokensIn
+    input.usage.outputTokens += tokensOut
+    input.usage.estimatedCostUsd += cost
+
+    await input.ledger.recordToolCall({
+      runId: input.runId,
+      runStepId: agentStepId,
+      toolName: 'orchestrator_llm',
+      provider: 'anthropic',
+      status: 'completed',
+      input: { iteration: iteration + 1, model: SONNET_MODEL_ID },
+      output: {
+        tokensIn,
+        tokensOut,
+        stopReason: response.stop_reason,
+        contentBlocks: response.content.length,
+      },
+      durationMs: Date.now() - startedAt,
+      costEstimateUsd: cost,
+    })
+
+    // Process response content blocks
+    const toolResults: Anthropic.Messages.ToolResultBlockParam[] = []
+
+    for (const block of response.content) {
+      if (block.type === 'text') {
+        if (response.stop_reason === 'tool_use') {
+          // Intermediate reasoning — show as thinking
+          if (block.text.trim()) {
+            input.send('thinking', { text: block.text })
+          }
+        } else {
+          // Final response text
+          finalTextContent += block.text
+          input.send('text', { chunk: block.text })
+        }
+      } else if (block.type === 'tool_use') {
+        const isMcpTool = mcpManager.isMCPTool(block.name)
+        input.send('tool_call', {
+          toolName: block.name,
+          toolInput: block.input,
+          iteration: iteration + 1,
+          source: isMcpTool ? 'mcp' : 'sandbox',
+        })
+
+        // Send code event for execute_code so frontend shows it
+        if (block.name === 'execute_code') {
+          const codeInput = block.input as { code: string; language?: string }
+          input.send('code', {
+            code: codeInput.code,
+            language: codeInput.language || 'python',
+          })
+          allCodeGenerated.push(codeInput.code)
+        }
+
+        // Execute the tool
+        input.send('status', { stage: 'executing' })
+        const toolStartedAt = Date.now()
+        const toolResult = await executeToolCall(
+          block.name,
+          block.input as Record<string, unknown>,
+          sandbox,
+          {
+            timeoutMs: input.budget.maxSandboxMs,
+            allowDangerousActions: input.approval?.allowDangerousActions ?? false,
+          }
+        )
+
+        // Handle safety blocks
+        if (toolResult.blocked) {
+          input.send('checkpoint', {
+            type: 'approval_required',
+            reason: toolResult.blockReason,
+            details: toolResult.riskCheck?.reasons || [],
+          })
+        }
+
+        // Track sandbox time
+        if (toolResult.executionTimeMs) {
+          totalSandboxMs += toolResult.executionTimeMs
+          input.usage.sandboxMs += toolResult.executionTimeMs
+        }
+
+        // Collect output files
+        if (toolResult.files && toolResult.files.length > 0) {
+          allFilesCreated.push(...toolResult.files)
+        }
+
+        input.send('tool_result', {
+          toolName: block.name,
+          success: toolResult.success,
+          output: toolResult.output.slice(0, 2000),
+          executionTimeMs: toolResult.executionTimeMs,
+          source: isMcpTool ? 'mcp' : 'sandbox',
+          filesCreated: toolResult.files?.map((f) => f.name),
+        })
+
+        // Send sandbox output event for code execution
+        if (block.name === 'execute_code') {
+          input.send('output', {
+            stdout: toolResult.success ? toolResult.output : '',
+            stderr: toolResult.success ? '' : toolResult.output,
+            success: toolResult.success,
+            executionTimeMs: toolResult.executionTimeMs,
+          })
+        }
+
+        await input.ledger.recordToolCall({
+          runId: input.runId,
+          runStepId: agentStepId,
+          toolName: `tool:${block.name}`,
+          provider,
+          status: toolResult.success ? 'completed' : 'failed',
+          input: block.input as Record<string, unknown>,
+          output: {
+            success: toolResult.success,
+            outputLength: toolResult.output.length,
+            files: toolResult.files?.map((f) => f.name),
+          },
+          durationMs: Date.now() - toolStartedAt,
+        })
+
+        // Build tool_result for the next API call
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: toolResult.output.slice(0, 8000),
+          is_error: !toolResult.success,
+        })
+      }
+    }
+
+    await input.ledger.completeStep(agentStepId, {
+      iteration: iteration + 1,
+      stopReason: response.stop_reason,
+      toolCallCount: toolResults.length,
+      tokensIn,
+      tokensOut,
+    })
+
+    // If model didn't call any tools, it's done
+    if (response.stop_reason === 'end_turn') {
+      break
+    }
+
+    // Append assistant response + tool results for next iteration
+    anthropicMessages = [
+      ...anthropicMessages,
+      { role: 'assistant' as const, content: response.content },
+      { role: 'user' as const, content: toolResults },
+    ]
+  }
+
+  // 6. Publish output files to Supabase Storage
+  if (allFilesCreated.length > 0) {
+    const filesStepId = await input.ledger.startStep(input.runId, 'publish_files', {
+      fileCount: allFilesCreated.length,
+    })
+
+    // Deduplicate files by name (agent may create same file in retry)
+    const uniqueFiles = deduplicateFiles(allFilesCreated)
+
+    for (const file of uniqueFiles) {
+      try {
+        const fileContentData = await sandbox.readFile(file.path, { format: 'blob' })
+        const fileContent =
+          fileContentData instanceof Blob ? fileContentData : new Blob([fileContentData])
+        const contentType = inferContentType(file.name)
+        const storagePath = `${input.userId}/${Date.now()}_${file.name}`
+
+        const { error: uploadError } = await input.supabase.storage
+          .from('user-files')
+          .upload(storagePath, fileContent, {
+            contentType,
+            upsert: true,
+          })
+
+        if (uploadError) {
+          input.send('error', { message: `File upload failed: ${uploadError.message}` })
+          continue
+        }
+
+        const { data: signedUrlData, error: signedUrlError } = await input.supabase.storage
+          .from('user-files')
+          .createSignedUrl(storagePath, 60 * 60)
+
+        const fileUrl = signedUrlError
+          ? input.supabase.storage.from('user-files').getPublicUrl(storagePath).data.publicUrl
+          : signedUrlData.signedUrl
+
+        input.send('file', {
+          name: file.name,
+          url: fileUrl,
+          size: fileContent.size,
+        })
+
+        await input.ledger.recordArtifact({
+          runId: input.runId,
+          runStepId: filesStepId,
+          artifactType: 'file',
+          name: file.name,
+          storagePath,
+          mimeType: contentType,
+          sizeBytes: fileContent.size,
+        })
+      } catch (fileError) {
+        input.send('error', {
+          message: `Failed to publish file ${file.name}: ${String(fileError)}`,
+        })
+      }
+    }
+
+    await input.ledger.completeStep(filesStepId, { success: true })
+  }
+
+  // 7. Save assistant message to DB
+  await input.supabase.from('messages').insert({
+    conversation_id: input.conversationId,
+    role: 'assistant',
+    content: finalTextContent,
+    intent_type: input.intent.intent,
+    model_used: SONNET_MODEL_LABEL,
+    sandbox_used: true,
+    sandbox_duration_ms: totalSandboxMs,
+    metadata: {
+      sandbox_provider: provider,
+      code: allCodeGenerated.join('\n---\n'),
+      language: input.intent.language,
+      files_created: allFilesCreated.map((f) => f.name),
+      agent_iterations: totalIterations,
+    },
+  })
+
+  // 8. Queue memory update
+  queueMemoryUpdate(input.memoryManager, {
+    userId: input.userId,
+    conversationId: input.conversationId,
+    userMessage: input.message,
+    assistantMessage: finalTextContent,
+    client: input.client,
+  })
+
+  // 9. Track usage
+  await trackUsage(input.userId, input.supabase, {
+    eventType: 'sandbox',
+    tokensIn: input.usage.inputTokens,
+    tokensOut: input.usage.outputTokens,
+    sandboxDurationMs: totalSandboxMs,
+    model: SONNET_MODEL_LABEL,
+  })
+
+  // Sandbox persists for session — no eager destroy.
+  // The 2-minute GC timer handles cleanup after timeout.
+
+  return 'completed'
+}
+
+// ---------------------------------------------------------------------------
+// Legacy execution path (kept as fallback, gated by AGENT_LOOP_ENABLED=false)
+// ---------------------------------------------------------------------------
 
 async function runExecutionPath(input: {
   supabase: SupabaseClient
@@ -296,6 +760,7 @@ async function runExecutionPath(input: {
   fileIds?: string[]
   approval?: ApprovalInput
   send: (event: string, data: unknown) => void
+  signal?: AbortSignal
   runId: string | null
   usage: RunUsage
   budget: { maxSandboxMs: number }
@@ -445,7 +910,7 @@ async function runExecutionPath(input: {
       role: 'assistant',
       content: checkpointMessage,
       intent_type: input.intent.intent,
-      model_used: MODEL_LABEL,
+      model_used: HAIKU_MODEL_LABEL,
       metadata: {
         code,
         language: input.intent.language,
@@ -487,7 +952,7 @@ async function runExecutionPath(input: {
       role: 'assistant',
       content: blockedMessage,
       intent_type: input.intent.intent,
-      model_used: MODEL_LABEL,
+      model_used: HAIKU_MODEL_LABEL,
       metadata: {
         checkpoint: {
           type: 'policy_violation',
@@ -624,7 +1089,7 @@ async function runExecutionPath(input: {
     role: 'assistant',
     content: summary,
     intent_type: input.intent.intent,
-    model_used: MODEL_LABEL,
+    model_used: HAIKU_MODEL_LABEL,
     sandbox_used: true,
     sandbox_duration_ms: result.executionTimeMs,
     metadata: {
@@ -651,15 +1116,18 @@ async function runExecutionPath(input: {
     tokensIn: 0,
     tokensOut: 0,
     sandboxDurationMs: result.executionTimeMs,
-    model: MODEL_LABEL,
+    model: HAIKU_MODEL_LABEL,
   })
 
-  // Eager cleanup: destroy sandbox after execution completes.
-  // Files are already uploaded to Supabase, sandbox is no longer needed.
-  void destroySandbox(input.userId).catch(() => {})
+  // Eager cleanup for legacy path only
+  void destroySandbox(input.userId).catch(() => { })
 
   return 'completed'
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 async function getUserExecutionSettings(
   userId: string,
@@ -737,6 +1205,19 @@ function inferContentType(filename: string): string {
   return mimeTypes[ext || ''] || 'application/octet-stream'
 }
 
+/**
+ * Deduplicate files by name — keep the last occurrence (agent may overwrite in retries).
+ */
+function deduplicateFiles(
+  files: Array<{ name: string; path: string; size: number }>
+): Array<{ name: string; path: string; size: number }> {
+  const seen = new Map<string, { name: string; path: string; size: number }>()
+  for (const file of files) {
+    seen.set(file.name, file)
+  }
+  return Array.from(seen.values())
+}
+
 async function recordRunManifestArtifact(input: {
   ledger: RunLedger
   runId: string | null
@@ -757,7 +1238,7 @@ async function recordRunManifestArtifact(input: {
       conversationId: input.conversationId,
       status: input.status,
       intentType: input.intentType,
-      modelUsed: MODEL_LABEL,
+      modelUsed: HAIKU_MODEL_LABEL,
       usage: input.usage,
       sandboxProvider: input.sandboxProviderUsed,
       errorMessage: input.errorMessage,

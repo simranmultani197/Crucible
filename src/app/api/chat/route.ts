@@ -4,6 +4,7 @@ import { createSSEStream } from '@/lib/utils/stream'
 import { checkRateLimit } from '@/lib/usage/tracker'
 import { enforceQuota } from '@/lib/usage/limiter'
 import { runChatWorkflow } from '@/lib/workflow/chat-workflow'
+import { destroySandbox } from '@/lib/sandbox/manager'
 
 export const maxDuration = 60
 
@@ -44,24 +45,31 @@ export async function POST(req: NextRequest) {
   }
 
   // Create SSE stream
-  const { stream, send, close } = createSSEStream()
+  const { stream, send, close, signal } = createSSEStream()
 
-  // Process in background
-  ;(async () => {
-    try {
-      await runChatWorkflow({
-        supabase,
-        userId: user.id,
-        message,
-        conversationId,
-        fileIds,
-        approval,
-        send,
-      })
-    } finally {
-      close()
-    }
-  })()
+  // Destroy sandbox when browser disconnects (tab close, navigation, etc.)
+  const userId = user.id
+  signal.addEventListener('abort', () => {
+    destroySandbox(userId).catch(() => { })
+  }, { once: true })
+
+    // Process in background
+    ; (async () => {
+      try {
+        await runChatWorkflow({
+          supabase,
+          userId,
+          message,
+          conversationId,
+          fileIds,
+          approval,
+          send,
+          signal,
+        })
+      } finally {
+        close()
+      }
+    })()
 
   // Save user message to DB
   await supabase.from('messages').insert({

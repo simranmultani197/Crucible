@@ -148,6 +148,55 @@ function shQuote(value) {
   return `'${String(value).replace(/'/g, `'\"'\"'`)}'`
 }
 
+function getLimaInstanceName(commandSpec) {
+  const binaryName = path.basename(commandSpec.binary || '')
+  if (binaryName !== 'limactl') return null
+  if (!Array.isArray(commandSpec.args) || commandSpec.args.length < 2) return null
+  if (commandSpec.args[0] !== 'shell') return null
+  const instance = commandSpec.args[1]
+  if (!instance || instance.startsWith('-')) return null
+  return instance
+}
+
+function tryStartLimaInstance(commandSpec) {
+  const instance = getLimaInstanceName(commandSpec)
+  if (!instance) {
+    return {
+      attempted: false,
+      ok: false,
+      error: null,
+    }
+  }
+
+  const startResult = spawnSync(commandSpec.binary, ['start', instance], {
+    encoding: 'utf8',
+    env: process.env,
+    timeout: 30_000,
+  })
+
+  if (startResult.status === 0) {
+    return {
+      attempted: true,
+      ok: true,
+      error: null,
+    }
+  }
+
+  const output = `${startResult.stderr || ''}\n${startResult.stdout || ''}`.trim()
+  return {
+    attempted: true,
+    ok: false,
+    error: output || `limactl start ${instance} failed`,
+  }
+}
+
+function isLikelyLimaHandshakeError(text) {
+  if (!text) return false
+  return /kex_exchange_identification|connection reset by peer|broken pipe|bad port '0'|failed to connect/i.test(
+    text
+  )
+}
+
 function pickTransport(backendBinary, hypervBinary) {
   const explicit = (process.env.LOCAL_MICROVM_TRANSPORT || process.env.MICROVMCTL_TRANSPORT || '')
     .trim()
@@ -204,6 +253,13 @@ function pipeAndWait(child) {
 }
 
 function runLocal(commandArgs, backendSpec) {
+  const limaStart = tryStartLimaInstance(backendSpec)
+  if (limaStart.attempted && !limaStart.ok) {
+    process.stderr.write(
+      `microvmctl wrapper warning: failed to auto-start Lima instance (${limaStart.error}). Continuing...\n`
+    )
+  }
+
   const child = spawn(
     backendSpec.binary,
     [...backendSpec.args, ...commandArgs],
@@ -269,14 +325,38 @@ function runProbe(transport, backendSpec, hypervSpec, remoteSpec) {
   let backendReady = null
   let backendProbeError = undefined
   const backendFound = commandExists(backendSpec.binary)
+  let limaAutoStartAttempted = false
 
   if (transport === 'local' && backendFound) {
-    const probeAttempt = spawnSync(backendSpec.binary, [...backendSpec.args, 'probe'], {
-      encoding: 'utf8',
-      env: process.env,
-      timeout: 12_000,
-    })
+    const runBackendProbe = () =>
+      spawnSync(backendSpec.binary, [...backendSpec.args, 'probe'], {
+        encoding: 'utf8',
+        env: process.env,
+        timeout: 12_000,
+      })
+
+    let probeAttempt = runBackendProbe()
     backendReady = probeAttempt.status === 0
+
+    if (!backendReady) {
+      const initialError =
+        (probeAttempt.stderr || '').trim() ||
+        (probeAttempt.stdout || '').trim() ||
+        'backend probe command failed'
+
+      if (isLikelyLimaHandshakeError(initialError)) {
+        const limaStart = tryStartLimaInstance(backendSpec)
+        if (limaStart.attempted) {
+          limaAutoStartAttempted = true
+        }
+
+        if (limaStart.ok) {
+          probeAttempt = runBackendProbe()
+          backendReady = probeAttempt.status === 0
+        }
+      }
+    }
+
     if (!backendReady) {
       backendProbeError =
         (probeAttempt.stderr || '').trim() ||
@@ -293,6 +373,7 @@ function runProbe(transport, backendSpec, hypervSpec, remoteSpec) {
     backendFound,
     backendReady,
     backendProbeError,
+    limaAutoStartAttempted,
     hypervBackendFound: commandExists(hypervSpec.binary),
     sshHostConfigured: Boolean((process.env.LOCAL_MICROVM_SSH_HOST || '').trim()),
     remoteCLI: remoteSpec.display,

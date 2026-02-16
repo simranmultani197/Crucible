@@ -37,6 +37,7 @@ LOCAL_MICROVM_FALLBACK_TO_REMOTE=true
 Bootstrap command:
 ```bash
 bash scripts/macos/install-krunvm-worker.sh
+limactl start forge-worker
 ```
 
 ### macOS/Windows alternative fallback
