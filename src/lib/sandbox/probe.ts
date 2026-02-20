@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { LocalMicroVMProbeResult } from '@/types/sandbox'
 
 const PROBE_CACHE_TTL_MS = 15_000
-const PROBE_DEFAULT_TIMEOUT_MS = 12_000
+const PROBE_DEFAULT_TIMEOUT_MS = 120_000
 
 let cachedProbe: { value: LocalMicroVMProbeResult; createdAt: number } | null = null
 

@@ -1,8 +1,9 @@
 'use client'
 
+import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Zap, Settings, LogOut } from 'lucide-react'
+import { Zap, Settings, LogOut, Menu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -12,7 +13,11 @@ import {
 } from '@/components/ui/dropdown-menu'
 import Link from 'next/link'
 
-export function Header() {
+interface HeaderProps {
+  onToggleSidebar?: () => void
+}
+
+export function Header({ onToggleSidebar }: HeaderProps) {
   const supabase = createClient()
   const router = useRouter()
 
@@ -23,11 +28,25 @@ export function Header() {
   }
 
   return (
-    <header className="h-14 border-b border-forge-border bg-forge-bg flex items-center justify-between px-4">
-      <Link href="/chat" className="flex items-center gap-2">
-        <Zap className="h-5 w-5 text-forge-accent" />
-        <span className="text-lg font-semibold text-forge-text">Termless</span>
-      </Link>
+    <header className="h-14 border-b border-forge-border bg-forge-bg/80 backdrop-blur-sm flex items-center justify-between px-4">
+      <div className="flex items-center gap-2">
+        {/* Hamburger — mobile only */}
+        {onToggleSidebar && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleSidebar}
+            className="md:hidden text-forge-muted hover:text-forge-text"
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
+        )}
+
+        <Link href="/chat" className="flex items-center gap-2">
+          <Zap className="h-5 w-5 text-forge-accent" />
+          <span className="text-lg font-semibold text-forge-text">Crucible</span>
+        </Link>
+      </div>
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

@@ -55,13 +55,19 @@ function buildSteps(
       {
         title: 'Set local backend command',
         description:
-          'Use LOCAL_MICROVM_TRANSPORT=local and LOCAL_MICROVM_BACKEND_CLI="limactl shell forge-worker -- microvmctl".',
+          'Use LOCAL_MICROVM_TRANSPORT=local and LOCAL_MICROVM_BACKEND_CLI="limactl shell crucible-worker -- microvmctl".',
       },
       {
         title: 'Start local worker VM',
         description:
           'If probe shows connection reset/handshake errors, start the Lima instance and retry.',
-        command: 'limactl start forge-worker',
+        command: 'limactl start crucible-worker',
+      },
+      {
+        title: 'Repair worker VM (if probe still fails)',
+        description:
+          'Resets the Lima VM and reinstalls. Use when connection reset persists after start.',
+        command: 'npm run microvm:repair:macos',
       },
       {
         title: 'Probe readiness',

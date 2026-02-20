@@ -15,5 +15,5 @@ export async function GET(req: NextRequest) {
 
   const fresh = req.nextUrl.searchParams.get('fresh') === '1'
   const result = await probeLocalMicroVM({ fresh })
-  return NextResponse.json(result, { status: result.ok ? 200 : 400 })
+  return NextResponse.json(result)
 }

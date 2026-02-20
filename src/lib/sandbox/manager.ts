@@ -239,12 +239,16 @@ async function createSandboxRuntime(
 export async function getOrCreateSandbox(
   userId: string,
   preferredProvider?: string | null,
-  options?: { strictNoFallback?: boolean }
+  options?: {
+    strictNoFallback?: boolean
+    onStatus?: (stage: string) => void
+  }
 ): Promise<{
   sandbox: SandboxRuntime
   provider: SandboxProvider
 }> {
   startSandboxCleanupTimer()
+  options?.onStatus?.('probing_local')
   const selected = await chooseTargetProvider(preferredProvider)
   const targetProvider = selected.target
   const strictNoFallback = options?.strictNoFallback === true
@@ -280,6 +284,7 @@ export async function getOrCreateSandbox(
   let fallbackActive = false
 
   try {
+    options?.onStatus?.('creating_sandbox')
     sandbox = await createSandboxRuntime(userId, targetProvider)
   } catch (error) {
     if (targetProvider === 'local_microvm' && fallbackAllowed) {
@@ -293,6 +298,7 @@ export async function getOrCreateSandbox(
 
   // Restore workspace files from local disk (local_microvm only)
   if (providerUsed === 'local_microvm') {
+    options?.onStatus?.('restoring_workspace')
     await restoreWorkspaceFromLocal(userId, sandbox)
   }
 

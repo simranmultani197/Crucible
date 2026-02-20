@@ -16,8 +16,13 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const meta = message.metadata
 
+  // Don't render empty assistant bubble while streaming — TypingIndicator handles that
+  if (!isUser && !message.content && message.isStreaming && !meta?.sandboxOutput && !meta?.code && !meta?.thinkingSteps?.length) {
+    return null
+  }
+
   return (
-    <div className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in-0 slide-in-from-bottom-2 duration-300`}>
       {!isUser && (
         <div className="w-8 h-8 rounded-full bg-forge-accent/20 flex items-center justify-center shrink-0 mt-1">
           <Bot className="h-4 w-4 text-forge-accent" />
@@ -26,11 +31,10 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
       <div className={`max-w-[80%] ${isUser ? 'order-first' : ''}`}>
         <div
-          className={`rounded-lg px-4 py-3 ${
-            isUser
+          className={`rounded-lg px-4 py-3 ${isUser
               ? 'bg-forge-accent text-white'
               : 'bg-forge-card border border-forge-border text-forge-text'
-          }`}
+            }`}
         >
           {isUser ? (
             <p className="text-sm whitespace-pre-wrap">{message.content}</p>

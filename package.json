@@ -5,6 +5,7 @@
   "scripts": {
     "clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\"",
     "dev": "next dev",
+    "dev:local": "bash scripts/dev-with-local-vm.sh",
     "dev:clean": "npm run clean && next dev",
     "quickstart": "bash scripts/quickstart.sh",
     "demo:microvm": "bash scripts/demo/microvm-flow.sh",
@@ -15,6 +16,7 @@
     "microvm:setup:linux": "bash scripts/linux/install-worker.sh",
     "microvm:setup:macos": "bash scripts/macos/install-krunvm-worker.sh",
     "microvm:setup:macos:localvm": "bash scripts/macos/install-krunvm-worker.sh",
+    "microvm:repair:macos": "bash scripts/macos/repair-lima-worker.sh",
     "microvm:setup:windows": "powershell -ExecutionPolicy Bypass -File scripts/windows/install-hyperv-worker.ps1"
   },
   "dependencies": {

@@ -370,7 +370,10 @@ async function runAgentLoop(input: {
   const { sandbox, provider } = await getOrCreateSandbox(
     input.userId,
     input.preferredSandboxProvider,
-    { strictNoFallback: input.strictNoFallback }
+    {
+      strictNoFallback: input.strictNoFallback,
+      onStatus: (stage) => input.send('status', { stage }),
+    }
   )
   input.onSandboxProviderResolved?.(provider)
   await input.ledger.completeStep(sandboxStepId, { success: true, provider })
@@ -791,7 +794,10 @@ async function runExecutionPath(input: {
   const { sandbox, provider } = await getOrCreateSandbox(
     input.userId,
     input.preferredSandboxProvider,
-    { strictNoFallback: input.strictNoFallback }
+    {
+      strictNoFallback: input.strictNoFallback,
+      onStatus: (stage) => input.send('status', { stage }),
+    }
   )
   input.onSandboxProviderResolved?.(provider)
   await input.ledger.completeStep(sandboxStepId, { success: true, provider })

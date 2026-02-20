@@ -116,3 +116,38 @@ a:hover {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+/* Sidebar slide animation */
+@keyframes sidebar-slide-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes sidebar-slide-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+.sidebar-enter {
+  animation: sidebar-slide-in 0.25s ease-out forwards;
+}
+.sidebar-exit {
+  animation: sidebar-slide-out 0.2s ease-in forwards;
+}
+
+/* Backdrop overlay */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  z-index: 40;
+  animation: fade-in 0.2s ease-out;
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Input bar shadow */
+.input-bar-shadow {
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.04);
+}

@@ -162,6 +162,7 @@ SANDBOX_PROVIDER=auto                              # auto | local_microvm | remo
 LOCAL_MICROVM_TRANSPORT=local                      # local | ssh
 LOCAL_MICROVM_BACKEND_CLI=limactl shell crucible-worker -- microvmctl
 LOCAL_MICROVM_FALLBACK_TO_REMOTE=true              # fallback to E2B if local fails
+LOCAL_MICROVM_AUTO_STOP_ON_IDLE=1                  # stop VM ~90s after closing all browser tabs (use with npm run dev:local)
 
 # Optional — MCP (Model Context Protocol)
 MCP_ENABLED=false
@@ -230,6 +231,8 @@ This will probe → create sandbox → write Python → execute → read artifac
 | `npm run build` | Production build |
 | `npm run lint` | Run ESLint |
 | `npm run microvm:probe` | Test local MicroVM connectivity |
+| `npm run microvm:repair:macos` | Reset and reinstall Lima worker (fixes connection errors) |
+| `npm run dev:local` | Dev server + auto-stop VM on exit or when all browser tabs close |
 | `npm run microvm:setup:macos` | Install krunvm worker (macOS) |
 | `npm run microvm:setup:linux` | Install worker (Linux) |
 | `npm run microvm:setup:windows` | Install Hyper-V worker (Windows) |

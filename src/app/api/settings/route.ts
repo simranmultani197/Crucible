@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 
+import { resolveSandboxProviderPreference } from '@/lib/sandbox/manager'
+
 // GET: Fetch user settings
 export async function GET() {
   const supabase = await createServerSupabaseClient()
@@ -36,11 +38,7 @@ export async function GET() {
   }
 
   const profileRecord = profile ?? {}
-  const sandboxProviderRaw = profileRecord.sandbox_provider
-  const sandboxProvider =
-    sandboxProviderRaw === 'local_microvm' || sandboxProviderRaw === 'remote_e2b'
-      ? sandboxProviderRaw
-      : 'auto'
+  const sandboxProvider = resolveSandboxProviderPreference(profileRecord.sandbox_provider as string | null)
   const strictNoFallback = profileRecord.strict_no_fallback === true
   const anthropicApiKeyRaw = profileRecord.anthropic_api_key
   const maskedAnthropicApiKey =

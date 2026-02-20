@@ -9,6 +9,15 @@ import { useUserStore } from '@/stores/userStore'
 import { ArrowLeft, Key, BarChart3, Shield, Cpu, Gauge } from 'lucide-react'
 import Link from 'next/link'
 import { useToast } from '@/hooks/use-toast'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { useRef } from 'react'
 
 export default function SettingsPage() {
   const { settings, fetchSettings } = useUserStore()
@@ -58,6 +67,20 @@ export default function SettingsPage() {
     maxSandboxMs: 10 * 60_000,
     maxTokensPerSession: 200_000,
   })
+
+  // Installation state
+  const [installDialogOpen, setInstallDialogOpen] = useState(false)
+  const [installLogs, setInstallLogs] = useState('')
+  const [installing, setInstalling] = useState(false)
+  const logsEndRef = useRef<HTMLDivElement>(null)
+
+  const scrollToBottom = () => {
+    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  useEffect(() => {
+    scrollToBottom()
+  }, [installLogs])
 
   const fetchMemorySettings = useCallback(async () => {
     try {
@@ -151,15 +174,23 @@ export default function SettingsPage() {
   const handleSetSandboxProvider = async (
     provider: 'auto' | 'remote_e2b' | 'local_microvm'
   ) => {
-    if (provider === 'local_microvm' && probeResult && !probeResult.ok) {
-      toast({
-        title: 'Local MicroVM not ready',
-        description:
-          probeResult.stderr ||
-          'Complete Local MicroVM setup first, or use Auto/Remote for now.',
-        variant: 'destructive',
-      })
-      return
+    // If user explicitly chooses local_microvm, verify it is ready first
+    if (provider === 'local_microvm') {
+      setProviderSaving(true)
+      try {
+        const res = await fetch('/api/sandbox/probe')
+        const data = await res.json().catch(() => ({}))
+
+        if (!res.ok || !data.ok) {
+          setInstallDialogOpen(true)
+          setProviderSaving(false)
+          return
+        }
+      } catch {
+        setInstallDialogOpen(true)
+        setProviderSaving(false)
+        return
+      }
     }
 
     setProviderSaving(true)
@@ -197,6 +228,62 @@ export default function SettingsPage() {
         variant: 'destructive',
       })
     } finally {
+      setProviderSaving(false)
+    }
+  }
+
+  const handleInstallAndSetLocal = async () => {
+    setInstalling(true)
+    setInstallLogs('Starting installation...\n')
+    try {
+      const response = await fetch('/api/sandbox/setup/run', {
+        method: 'POST',
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to start installation process.')
+      }
+
+      if (response.body) {
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          setInstallLogs((prev) => prev + decoder.decode(value, { stream: true }))
+        }
+
+        // Run probe again after streaming is done
+        setInstallLogs((prev) => prev + '\nInstallation complete! Verifying probe...\n')
+        await runMicrovmProbe({ silent: true, fresh: true })
+        // Use updated state effectively
+        setProviderSaving(true)
+        const res = await fetch('/api/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sandbox_provider: 'local_microvm' }),
+        })
+        if (res.ok) {
+          await fetchSettings()
+          toast({
+            title: 'Setup Complete',
+            description: 'Local microVM has been successfully installed and set as your provider.',
+          })
+          setInstallDialogOpen(false)
+        }
+      } else {
+        throw new Error('Response body is null')
+      }
+    } catch (err) {
+      setInstallLogs((prev) => prev + `\nError: ${err instanceof Error ? err.message : String(err)}`)
+      toast({
+        title: 'Installation failed',
+        description: 'Check the logs for details.',
+        variant: 'destructive',
+      })
+    } finally {
+      setInstalling(false)
       setProviderSaving(false)
     }
   }
@@ -300,8 +387,8 @@ export default function SettingsPage() {
     fetchSettings()
     fetchMemorySettings()
     fetchSandboxStatus()
-    fetchSetupGuide()
-    void runMicrovmProbe({ silent: true })
+    // We intentionally DO NOT probe or fetch setup guide on mount,
+    // as it can spin up the local worker instance unexpectedly.
     // Load budget settings from profile
     void (async () => {
       try {
@@ -314,7 +401,7 @@ export default function SettingsPage() {
         }
       } catch { /* best-effort */ }
     })()
-  }, [fetchSettings, fetchMemorySettings, fetchSandboxStatus, fetchSetupGuide, runMicrovmProbe])
+  }, [fetchSettings, fetchMemorySettings, fetchSandboxStatus])
 
   const handleSaveMemorySettings = async () => {
     if (!memorySettings) return
@@ -1045,6 +1132,52 @@ export default function SettingsPage() {
                 <p className="text-sm text-forge-muted">Loading memory settings...</p>
               )}
             </div>
+
+            {/* Install Dialog */}
+            <Dialog open={installDialogOpen} onOpenChange={setInstallDialogOpen}>
+              <DialogContent className="bg-forge-card border-forge-border text-forge-text sm:max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Automated Setup: Local MicroVM</DialogTitle>
+                  <DialogDescription className="text-forge-muted">
+                    This will download the host OS image, initialize the MicroVM, and install required packages inside it.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  {installLogs ? (
+                    <ScrollArea className="h-64 w-full rounded-md border border-forge-border bg-black/80 font-mono text-xs p-4">
+                      <pre className="text-green-400 whitespace-pre-wrap">
+                        {installLogs}
+                        <div ref={logsEndRef} />
+                      </pre>
+                    </ScrollArea>
+                  ) : (
+                    <p className="text-sm text-forge-muted">
+                      Your current execution backend is set to something else, or the local environment is missing. Would you like to provision and install the local execution worker now? Ensure you have homebrew installed on your machine.
+                    </p>
+                  )}
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setInstallDialogOpen(false)}
+                      disabled={installing}
+                      className="border-forge-border text-forge-text"
+                    >
+                      Cancel
+                    </Button>
+                    {!installLogs && (
+                      <Button
+                        onClick={handleInstallAndSetLocal}
+                        disabled={installing}
+                        className="bg-forge-accent hover:bg-forge-accent/90 text-white"
+                      >
+                        Start Setup
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+
           </div>
         </div>
       </div>

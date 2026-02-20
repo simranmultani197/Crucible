@@ -171,7 +171,7 @@ function tryStartLimaInstance(commandSpec) {
   const startResult = spawnSync(commandSpec.binary, ['start', instance], {
     encoding: 'utf8',
     env: process.env,
-    timeout: 30_000,
+    timeout: 90_000,
   })
 
   if (startResult.status === 0) {
@@ -192,9 +192,13 @@ function tryStartLimaInstance(commandSpec) {
 
 function isLikelyLimaHandshakeError(text) {
   if (!text) return false
-  return /kex_exchange_identification|connection reset by peer|broken pipe|bad port '0'|failed to connect/i.test(
+  return /kex_exchange_identification|connection reset by peer|broken pipe|bad port '0'|failed to connect|is stopped|no such file or directory/i.test(
     text
   )
+}
+
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function pickTransport(backendBinary, hypervBinary) {
@@ -351,8 +355,40 @@ function runProbe(transport, backendSpec, hypervSpec, remoteSpec) {
         }
 
         if (limaStart.ok) {
+          // Lima VM needs time for SSH to become ready — especially on first cold start.
+          // kex_exchange_identification/connection reset by peer = sshd not ready yet.
+          const initialWait = 12_000 // 12s before first retry (VM boot + sshd init)
+          process.stderr.write(
+            `microvmctl: Lima instance started. Waiting ${initialWait / 1000}s for SSH to become ready...\n`
+          )
+          spawnSync('sleep', [String(initialWait / 1000)], { timeout: initialWait + 2000 })
+
+          // Warmup: first SSH connection to a cold VM often fails; run a no-op to "wake" sshd
+          const instance = getLimaInstanceName(backendSpec)
+          if (instance) {
+            spawnSync(backendSpec.binary, [...backendSpec.args.slice(0, 3), 'true'], {
+              encoding: 'utf8',
+              timeout: 15_000,
+            })
+            spawnSync('sleep', ['2'], { timeout: 3000 })
+          }
+
           probeAttempt = runBackendProbe()
           backendReady = probeAttempt.status === 0
+
+          if (!backendReady) {
+            const retryDelays = [5000, 8000, 10000, 12000] // additional retries with longer waits
+            for (const delay of retryDelays) {
+              process.stderr.write(`microvmctl: Retrying probe in ${delay / 1000}s...\n`)
+              spawnSync('sleep', [String(delay / 1000)], { timeout: delay + 2000 })
+              probeAttempt = runBackendProbe()
+              backendReady = probeAttempt.status === 0
+              if (backendReady) break
+
+              const retryError = (probeAttempt.stderr || '').trim()
+              if (retryError && !isLikelyLimaHandshakeError(retryError)) break
+            }
+          }
         }
       }
     }
