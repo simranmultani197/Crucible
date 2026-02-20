@@ -344,10 +344,6 @@ export default function SettingsPage() {
     }
   }, [toast, fetchSandboxStatus, fetchSetupGuide])
 
-  const handleProbeMicrovm = async () => {
-    await runMicrovmProbe({ fresh: true })
-  }
-
   const handleToggleStrictNoFallback = async () => {
     const nextValue = !Boolean(settings?.strict_no_fallback)
     setProviderSaving(true)
@@ -688,15 +684,6 @@ export default function SettingsPage() {
                   onClick={() => handleSetSandboxProvider('local_microvm')}
                 >
                   {probeResult && !probeResult.ok ? 'Local MicroVM (Setup Needed)' : 'Local MicroVM'}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-forge-border text-forge-text"
-                  disabled={probeLoading}
-                  onClick={handleProbeMicrovm}
-                >
-                  {probeLoading ? 'Testing...' : 'Test Local MicroVM'}
                 </Button>
               </div>
 
