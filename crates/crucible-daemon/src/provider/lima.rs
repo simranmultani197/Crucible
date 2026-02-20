@@ -6,17 +6,22 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::collections::HashMap;
+use std::sync::RwLock;
 use tokio::process::Command;
 
 pub struct LimaProvider {
     // The name of the background lima instance hosting the containers
     pub instance_name: String,
+    // Store sandbox specs to retrieve policy configurations during exec
+    specs: RwLock<HashMap<SandboxId, SandboxSpec>>,
 }
 
 impl LimaProvider {
     pub fn new(instance_name: impl Into<String>) -> Self {
         Self {
             instance_name: instance_name.into(),
+            specs: RwLock::new(HashMap::new()),
         }
     }
 
@@ -79,6 +84,12 @@ impl SandboxProvider for LimaProvider {
     async fn create_sandbox(&self, spec: SandboxSpec) -> Result<SandboxId> {
         let id = uuid::Uuid::new_v4().to_string();
         
+        // Save the spec for later policy enforcement during `exec`
+        {
+            let mut specs = self.specs.write().unwrap();
+            specs.insert(id.clone(), spec);
+        }
+
         // For the Lima mock provider, a "sandbox" is just an isolated directory in the guest
         // In a real krunvm/firecracker setup, this boots an actual isolated VM.
         let guest_dir = format!("/tmp/crucible_sandbox_{}", id);
@@ -100,6 +111,12 @@ impl SandboxProvider for LimaProvider {
     async fn destroy_sandbox(&self, id: &SandboxId, _force: bool) -> Result<()> {
         let guest_dir = format!("/tmp/crucible_sandbox_{}", id);
         self.run_in_guest(&["rm", "-rf", &guest_dir]).await?;
+        
+        {
+            let mut specs = self.specs.write().unwrap();
+            specs.remove(id);
+        }
+        
         Ok(())
     }
 
@@ -108,15 +125,45 @@ impl SandboxProvider for LimaProvider {
         let guest_dir = format!("/tmp/crucible_sandbox_{}", id);
         let exec_id = uuid::Uuid::new_v4().to_string();
 
+        let mut bwrap_args = vec![
+            "bwrap".to_string(),
+            "--bind".to_string(), "/".to_string(), "/".to_string(),
+            "--dev".to_string(), "/dev".to_string(),
+            "--proc".to_string(), "/proc".to_string(),
+            "--chdir".to_string(), guest_dir.clone(),
+        ];
+
+        // Retrieve sandbox policy to enforce security boundaries
+        {
+            let specs = self.specs.read().unwrap();
+            if let Some(sandbox_spec) = specs.get(id) {
+                // Egress Network Isolation
+                if sandbox_spec.policy.network.deny_all {
+                    bwrap_args.push("--unshare-net".to_string());
+                }
+
+                // Mount Enforcement
+                for m in &sandbox_spec.policy.mounts {
+                    if m.read_only {
+                        bwrap_args.push("--ro-bind".to_string());
+                    } else {
+                        bwrap_args.push("--bind".to_string());
+                    }
+                    bwrap_args.push(m.host_path.display().to_string());
+                    bwrap_args.push(m.guest_path.display().to_string());
+                }
+            }
+        }
+
+        bwrap_args.push("--".to_string());
+        for a in &spec.argv {
+            bwrap_args.push(a.clone());
+        }
+
         let mut cmd = Command::new("limactl");
         cmd.arg("shell").arg(&self.instance_name);
         
-        // Change to sandbox directory
-        cmd.arg("sh").arg("-c").arg(format!(
-            "cd {} && {}",
-            guest_dir,
-            spec.argv.join(" ")
-        ));
+        cmd.arg("sh").arg("-c").arg(bwrap_args.join(" "));
 
         // Note: Real implementation needs handling of `spec.timeout` and `spec.env`
         let output = cmd.output().await?;
@@ -128,11 +175,11 @@ impl SandboxProvider for LimaProvider {
     }
 
     // --- Snapshot ---
-    async fn create_snapshot(&self, _id: &SandboxId) -> Result<SnapshotMeta> {
+    async fn create_snapshot(&self, _id: &SandboxId, _dst_path: &std::path::Path) -> Result<SnapshotMeta> {
         Err(anyhow!("Snapshots are not supported by the Lima provider"))
     }
 
-    async fn restore_snapshot(&self, _snapshot_id: &SnapshotId) -> Result<SandboxId> {
+    async fn restore_snapshot(&self, _snapshot_id: &SnapshotId, _new_sandbox_id: &SandboxId, _snapshot_dir: &std::path::Path) -> Result<()> {
         Err(anyhow!("Snapshots are not supported by the Lima provider"))
     }
 

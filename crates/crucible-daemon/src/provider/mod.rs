@@ -92,13 +92,18 @@ pub trait SandboxProvider: Send + Sync {
     ) -> anyhow::Result<ExecResult>;
 
     // --- Snapshot ---
-    async fn create_snapshot(&self, id: &SandboxId)
-        -> anyhow::Result<SnapshotMeta>;
+    async fn create_snapshot(
+        &self, 
+        id: &SandboxId, 
+        dst_path: &std::path::Path
+    ) -> anyhow::Result<SnapshotMeta>;
 
     async fn restore_snapshot(
         &self,
         snapshot_id: &SnapshotId,
-    ) -> anyhow::Result<SandboxId>;
+        new_sandbox_id: &SandboxId,
+        snapshot_dir: &std::path::Path
+    ) -> anyhow::Result<()>;
 
     async fn delete_snapshot(&self, snapshot_id: &SnapshotId)
         -> anyhow::Result<()>;
