@@ -152,6 +152,12 @@ impl SandboxProvider for LimaProvider {
                     bwrap_args.push(m.host_path.display().to_string());
                     bwrap_args.push(m.guest_path.display().to_string());
                 }
+
+                // Hardware Acceleration
+                if sandbox_spec.policy.enable_gpu {
+                    // In a true krunvm implementation, this would map `/dev/dri` and Venus Vulkan paths into the bwrap
+                    println!("Provider Warning: GPU acceleration requested but Lima mock provider does not fully implement Venus passthrough.");
+                }
             }
         }
 

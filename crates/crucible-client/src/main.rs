@@ -46,6 +46,9 @@ enum SandboxCommands {
     Create {
         #[arg(short, long)]
         image: String,
+        /// Request hardware acceleration (GPU) for the sandbox
+        #[arg(short, long)]
+        gpu: bool,
     },
 }
 
@@ -83,8 +86,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         Commands::Sandbox { action } => match action {
-            SandboxCommands::Create { image } => {
-                println!("Creating sandbox from image: {}", image);
+            SandboxCommands::Create { image, gpu } => {
+                println!("Creating sandbox from image: {} (GPU: {})", image, gpu);
                 
                 let request = tonic::Request::new(CreateSandboxRequest {
                     spec: Some(SandboxSpec {
@@ -102,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 allow_loopback: true,
                             }),
                             mounts: Some(pb::MountPolicy { mounts: vec![] }),
-                            enable_gpu: false,
+                            enable_gpu: gpu,
                             enable_snapshotting: false,
                             strict_no_fallback: true,
                         }),
