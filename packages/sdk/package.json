@@ -1,0 +1,22 @@
+{
+    "name": "@crucible/sdk",
+    "version": "0.1.0",
+    "private": true,
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "bin": {
+        "crucible": "./bin/crucible"
+    },
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc -w"
+    },
+    "dependencies": {
+        "@e2b/code-interpreter": "^2.3.3",
+        "dotenv": "^17.3.1"
+    },
+    "devDependencies": {
+        "@types/node": "^20",
+        "typescript": "^5.0.0"
+    }
+}

@@ -3,17 +3,22 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'no
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { createLocalMicroVMSandbox } from '@/lib/sandbox/providers/local-microvm'
-import { createRemoteE2BSandbox } from '@/lib/sandbox/providers/e2b'
-import type { SandboxRuntime } from '@/lib/sandbox/provider'
-import { probeLocalMicroVM } from '@/lib/sandbox/probe'
-import { WORKSPACE_LIMITS } from '@/lib/usage/constants'
+import { createLocalMicroVMSandbox } from './providers/local-microvm'
+import { createRemoteE2BSandbox } from './providers/e2b'
+import type { SandboxRuntime } from './provider'
+import { probeLocalMicroVM } from './probe'
 import type {
   LocalMicroVMProbeResult,
   SandboxProvider,
   SandboxProviderPreference,
   SandboxStatus,
-} from '@/types/sandbox'
+} from './types/sandbox'
+
+export const WORKSPACE_LIMITS = {
+  maxFiles: 50,
+  maxFileSizeBytes: 10 * 1024 * 1024,
+  maxTotalSizeBytes: 50 * 1024 * 1024,
+} as const
 
 const execFileAsync = promisify(execFile)
 

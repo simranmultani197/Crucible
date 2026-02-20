@@ -1,0 +1,76 @@
+#!/usr/bin/env node
+
+const fs = require('fs')
+const path = require('path')
+require('dotenv').config({ path: path.resolve(process.cwd(), '.env.local') })
+const { getOrCreateSandbox, destroySandbox } = require('../dist/index')
+
+async function main() {
+    const args = process.argv.slice(2)
+    const command = args[0] || 'help'
+
+    if (command === 'help') {
+        console.log(`
+Crucible Sandbox Engine CLI
+
+Usage:
+  crucible run <file.py>    Run a local python script inside a secure MicroVM
+  crucible destroy <id>     Destroy a specific sandbox
+  crucible init             Initialize crucible configuration
+    `)
+        process.exit(0)
+    }
+
+    if (command === 'run') {
+        const file = args[1]
+        if (!file || !fs.existsSync(file)) {
+            console.error('Error: File not found.')
+            process.exit(1)
+        }
+
+        const code = fs.readFileSync(file, 'utf8')
+        console.log(`[Crucible] Booting isolated MicroVM...`)
+
+        // We use a fixed ID for CLI testing or generate one
+        const userId = process.env.USER || 'cli-user'
+
+        try {
+            const { sandbox, provider } = await getOrCreateSandbox(userId, 'local_microvm', {
+                strictNoFallback: true,
+                onStatus: (stage) => console.log(`[Crucible] Status: ${stage}`)
+            })
+
+            console.log(`[Crucible] Connected to ${provider} backend. Executing code...`)
+            const start = Date.now()
+            const result = await sandbox.runCode(code, { timeoutMs: 30000 })
+            const dur = Date.now() - start
+
+            console.log(`\n--- Execution Result (${dur}ms) ---`)
+            if (result.logs.stdout.length > 0) console.log(result.logs.stdout.join(''))
+            if (result.logs.stderr.length > 0) console.error(result.logs.stderr.join(''))
+            if (result.error) {
+                console.error('Error Traceback:')
+                console.error(result.error.traceback)
+            }
+            console.log(`-----------------------------------`)
+
+            process.exit(result.error ? 1 : 0)
+        } catch (err) {
+            console.error('[Crucible] Fatal Error:', err.message)
+            process.exit(1)
+        }
+    }
+
+    if (command === 'destroy') {
+        const id = args[1] || (process.env.USER || 'cli-user')
+        console.log(`[Crucible] Destroying sandbox for ${id}...`)
+        await destroySandbox(id)
+        console.log(`[Crucible] Done.`)
+        process.exit(0)
+    }
+
+    console.error(`Unknown command: ${command}`)
+    process.exit(1)
+}
+
+main().catch(console.error)
