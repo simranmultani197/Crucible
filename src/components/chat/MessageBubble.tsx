@@ -32,8 +32,8 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       <div className={`max-w-[80%] ${isUser ? 'order-first' : ''}`}>
         <div
           className={`rounded-lg px-4 py-3 ${isUser
-              ? 'bg-forge-accent text-white'
-              : 'bg-forge-card border border-forge-border text-forge-text'
+            ? 'bg-forge-accent text-white'
+            : 'bg-forge-card border border-forge-border text-forge-text'
             }`}
         >
           {isUser ? (
@@ -71,6 +71,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           )}
         </div>
 
+        {/* Agent Thinking Steps */}
+        {!isUser && meta?.thinkingSteps && meta.thinkingSteps.length > 0 && (
+          <AgentThinking steps={meta.thinkingSteps} />
+        )}
+
         {/* Sandbox Output */}
         {!isUser && meta && (meta.sandboxOutput || meta.code || meta.error) && (
           <SandboxOutput
@@ -84,11 +89,6 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             language={meta.language}
             checkpoint={meta.checkpoint}
           />
-        )}
-
-        {/* Agent Thinking Steps */}
-        {!isUser && meta?.thinkingSteps && meta.thinkingSteps.length > 0 && (
-          <AgentThinking steps={meta.thinkingSteps} />
         )}
 
         {/* Timestamp */}
