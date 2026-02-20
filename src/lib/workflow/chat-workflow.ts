@@ -91,6 +91,7 @@ export async function runChatWorkflow(input: ChatWorkflowInput): Promise<Workflo
   let intentType: string | undefined
   let status: WorkflowResult['status'] = 'completed'
   let sandboxProviderUsed: string | undefined
+  let titlePromise: Promise<void> | undefined
 
   try {
     const client = await getAnthropicClient(input.userId, input.supabase)
@@ -106,15 +107,16 @@ export async function runChatWorkflow(input: ChatWorkflowInput): Promise<Workflo
     const history = memoryContext.messages
 
     if (history.length === 0 || (history.length === 1 && history[0].role === 'assistant')) {
-      // Fire and forget auto-titler
-      generateConversationTitle(
+      // Start auto-titler in background, but track promise to await later
+      console.log('Generating auto-title for new conversation:', input.conversationId)
+      titlePromise = generateConversationTitle(
         input.userId,
         input.conversationId,
         input.message,
         input.supabase,
         client,
         input.send
-      ).catch(() => { })
+      )
     }
 
     input.send('status', { stage: 'routing' })
@@ -158,6 +160,8 @@ export async function runChatWorkflow(input: ChatWorkflowInput): Promise<Workflo
         memoryManager,
         ledger,
       })
+      if (titlePromise) await titlePromise.catch(console.error)
+      return { runId, status }
     } else if (AGENT_LOOP_ENABLED) {
       // Agent loop with Sonnet + tool_use
       status = await runAgentLoop({
@@ -255,6 +259,8 @@ export async function runChatWorkflow(input: ChatWorkflowInput): Promise<Workflo
       runId,
       status,
     })
+
+    if (titlePromise) await titlePromise.catch(console.error)
   }
 
   return { runId, status }
@@ -374,8 +380,7 @@ async function runAgentLoop(input: {
   ledger: RunLedger
 }): Promise<'completed' | 'awaiting_approval'> {
   // 1. Check sandbox access (always enabled in open-source)
-  await checkSandboxAccess(input.userId, input.supabase)
-
+  await checkSandboxAccess()
   // 2. Start sandbox (persists across all iterations)
   input.send('status', { stage: 'sandbox_starting' })
   const sandboxStepId = await input.ledger.startStep(input.runId, 'sandbox_start')
@@ -779,7 +784,7 @@ async function runExecutionPath(input: {
   ledger: RunLedger
 }): Promise<'completed' | 'awaiting_approval'> {
   // Sandbox access is always enabled in open-source
-  await checkSandboxAccess(input.userId, input.supabase)
+  await checkSandboxAccess()
 
   input.send('status', { stage: 'discovering' })
   const discoveryStepId = await input.ledger.startStep(input.runId, 'discover_tools', {

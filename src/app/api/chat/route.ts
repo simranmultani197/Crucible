@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const quota = await enforceQuota(user.id, supabase)
+  const quota = await enforceQuota()
   if (!quota.allowed) {
     return new Response(
       JSON.stringify({ error: quota.reason || 'Usage quota exceeded.' }),

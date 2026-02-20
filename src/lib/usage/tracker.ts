@@ -32,10 +32,7 @@ export async function checkRateLimit(
   return profile.daily_sessions_used < DEFAULT_LIMITS.dailySessions
 }
 
-export async function checkSandboxAccess(
-  _userId: string,
-  _supabase: SupabaseClient
-): Promise<boolean> {
+export async function checkSandboxAccess(): Promise<boolean> {
   // Open source: sandbox is always enabled for all users
   return true
 }
