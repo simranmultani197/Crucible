@@ -12,7 +12,7 @@ export function MessageList() {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    bottomRef.current?.scrollIntoView({ behavior: 'auto' })
   }, [messages, isStreaming])
 
   if (messages.length === 0 && !isLoading) {
