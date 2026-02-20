@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { Zap, Code, Package, Terminal } from 'lucide-react'
+import { Code, Package, Terminal } from 'lucide-react'
+import { BullIcon } from '@/components/ui/bull-icon'
 import { Button } from '@/components/ui/button'
 
 export default function LandingPage() {
@@ -8,7 +9,7 @@ export default function LandingPage() {
       {/* Hero */}
       <div className="max-w-4xl mx-auto px-4 py-20 text-center">
         <div className="flex items-center justify-center gap-3 mb-6">
-          <Zap className="h-12 w-12 text-forge-accent" />
+          <BullIcon className="h-12 w-12 text-forge-accent" />
           <h1 className="text-5xl font-bold text-forge-text">Termless</h1>
         </div>
         <p className="text-xl text-forge-muted mb-8 max-w-2xl mx-auto">

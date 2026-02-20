@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Zap } from 'lucide-react'
+import { BullIcon } from '@/components/ui/bull-icon'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -49,7 +49,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
           <div className="flex items-center justify-center gap-2 mb-4">
-            <Zap className="h-8 w-8 text-forge-accent" />
+            <BullIcon className="h-8 w-8 text-forge-accent" />
             <h1 className="text-3xl font-bold text-forge-text">Termless</h1>
           </div>
           <p className="text-forge-muted">Sign in to your account</p>

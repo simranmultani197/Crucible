@@ -3,7 +3,8 @@
 
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Zap, Settings, LogOut, Menu } from 'lucide-react'
+import { Settings, LogOut, Menu } from 'lucide-react'
+import { BullIcon } from '@/components/ui/bull-icon'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -43,7 +44,7 @@ export function Header({ onToggleSidebar }: HeaderProps) {
         )}
 
         <Link href="/chat" className="flex items-center gap-2">
-          <Zap className="h-5 w-5 text-forge-accent" />
+          <BullIcon className="h-5 w-5 text-forge-accent" />
           <span className="text-lg font-semibold text-forge-text">Crucible</span>
         </Link>
       </div>

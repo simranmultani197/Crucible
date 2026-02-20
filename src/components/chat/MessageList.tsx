@@ -5,7 +5,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { MessageBubble } from './MessageBubble'
 import { TypingIndicator } from './TypingIndicator'
 import { useChatStore } from '@/stores/chatStore'
-import { Zap } from 'lucide-react'
+import { BullIcon } from '@/components/ui/bull-icon'
 
 export function MessageList() {
   const { messages, isStreaming, isLoading, sandboxStatus } = useChatStore()
@@ -19,7 +19,7 @@ export function MessageList() {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center space-y-4">
-          <Zap className="h-12 w-12 text-forge-accent/30 mx-auto" />
+          <BullIcon className="h-12 w-12 text-forge-accent/30 mx-auto" />
           <div>
             <h3 className="text-lg font-medium text-forge-text">Start a conversation</h3>
             <p className="text-sm text-forge-muted mt-1">
