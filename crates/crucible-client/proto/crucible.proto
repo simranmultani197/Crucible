@@ -1,0 +1,496 @@
+syntax = "proto3";
+
+package crucible.daemon.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
+
+option go_package = "crucible/daemon/v1;daemonv1";
+
+// -------------------- Common Types --------------------
+
+message Labels {
+  map<string, string> items = 1;
+}
+
+message Paging {
+  uint32 page_size = 1;           // max enforced server-side
+  string page_token = 2;
+}
+
+message PageInfo {
+  string next_page_token = 1;
+}
+
+enum ProviderType {
+  PROVIDER_TYPE_UNSPECIFIED = 0;
+  PROVIDER_LOCAL_FIRECRACKER = 1;
+  PROVIDER_LOCAL_KRUNVM      = 2;
+  PROVIDER_LOCAL_LIMA        = 3;
+  PROVIDER_REMOTE_E2B        = 4;
+}
+
+enum SandboxState {
+  SANDBOX_STATE_UNSPECIFIED = 0;
+  SANDBOX_CREATING          = 1;
+  SANDBOX_BOOTING           = 2;
+  SANDBOX_READY             = 3;
+  SANDBOX_RUNNING           = 4;
+  SANDBOX_IDLE              = 5;
+  SANDBOX_STOPPING          = 6;
+  SANDBOX_STOPPED           = 7;
+  SANDBOX_DESTROYED         = 8;
+  SANDBOX_ERROR             = 9;
+}
+
+enum ExecState {
+  EXEC_STATE_UNSPECIFIED = 0;
+  EXEC_QUEUED            = 1;
+  EXEC_RUNNING           = 2;
+  EXEC_SUCCEEDED         = 3;
+  EXEC_FAILED            = 4;
+  EXEC_TIMED_OUT         = 5;
+  EXEC_CANCELED          = 6;
+}
+
+message ResourceLimits {
+  uint32 vcpu = 1;
+  uint64 memory_mb = 2;
+  uint64 disk_mb = 3;
+  uint32 pids_max = 4;
+  uint64 sandbox_ttl_sec = 5;     // max lifetime
+  uint64 idle_ttl_sec = 6;        // auto-stop when idle
+}
+
+message NetworkPolicy {
+  bool deny_all = 1;                         // default true
+  repeated string allow_domains = 2;         // exact or suffix rules
+  repeated string allow_cidrs = 3;           // optional
+  bool allow_loopback = 4;                   // default true
+}
+
+message MountPolicy {
+  message Mount {
+    string host_path = 1;                    // absolute
+    string guest_path = 2;                   // absolute
+    bool read_only = 3;                      // default true
+  }
+  repeated Mount mounts = 1;
+}
+
+message SandboxPolicy {
+  string policy_id = 1;                      // optional reference
+  NetworkPolicy network = 2;
+  MountPolicy mounts = 3;
+  bool enable_gpu = 4;                       // default false
+  bool enable_snapshotting = 5;              // default false
+  bool strict_no_fallback = 6;               // default false
+}
+
+// -------------------- Sandbox --------------------
+
+message SandboxSpec {
+  ProviderType provider = 1;                 // or AUTO in settings
+  string base_image = 2;                     // "crucible-python:3.11" etc.
+  string working_dir = 3;                    // guest path
+  Labels labels = 4;
+  ResourceLimits limits = 5;
+  SandboxPolicy policy = 6;
+
+  // If true, daemon may reuse a warm pooled sandbox matching base_image+policy.
+  bool allow_pool_reuse = 7;
+
+  // Optional: prewarm command to run after boot.
+  repeated string init_cmd = 8;
+}
+
+message Sandbox {
+  string sandbox_id = 1;
+  ProviderType provider = 2;
+  SandboxState state = 3;
+  SandboxSpec spec = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  string last_error = 7;
+  ResourceUsage usage = 8;
+}
+
+message ResourceUsage {
+  double cpu_percent = 1;
+  uint64 memory_mb = 2;
+  uint64 disk_mb = 3;
+  uint64 net_rx_bytes = 4;
+  uint64 net_tx_bytes = 5;
+  uint64 uptime_sec = 6;
+}
+
+// -------------------- Execution --------------------
+
+message ExecSpec {
+  string sandbox_id = 1;
+  // One of:
+  repeated string argv = 2;                  // preferred: ["python","main.py"]
+  string shell = 3;                          // optional: "python main.py"
+
+  map<string, string> env = 4;
+  string cwd = 5;                            // guest path
+  uint64 timeout_ms = 6;                     // enforced
+  bool stream_stdout = 7;                    // if true, server streams output
+  bool stream_stderr = 8;
+
+  // Optional: attach files by artifact_id before exec.
+  repeated string input_artifact_ids = 9;
+}
+
+message ExecResult {
+  string exec_id = 1;
+  string sandbox_id = 2;
+  ExecState state = 3;
+  int32 exit_code = 4;
+  google.protobuf.Timestamp started_at = 5;
+  google.protobuf.Timestamp finished_at = 6;
+
+  // Output artifacts (logs, generated files, plot HTML, etc.)
+  repeated string output_artifact_ids = 7;
+
+  // Short previews for convenience (bounded).
+  string stdout_preview = 8;
+  string stderr_preview = 9;
+
+  // Policy violations recorded during this exec.
+  repeated PolicyViolation violations = 10;
+}
+
+message OutputChunk {
+  string exec_id = 1;
+  enum Stream { STREAM_UNSPECIFIED = 0; STDOUT = 1; STDERR = 2; }
+  Stream stream = 2;
+  bytes data = 3;
+  google.protobuf.Timestamp ts = 4;
+}
+
+message PolicyViolation {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    EGRESS_BLOCKED = 1;
+    MOUNT_DENIED = 2;
+    FILE_WRITE_DENIED = 3;
+    GPU_DENIED = 4;
+    RESOURCE_LIMIT = 5;
+    SYSCALL_DENIED = 6;
+  }
+  Kind kind = 1;
+  string message = 2;
+  google.protobuf.Timestamp ts = 3;
+
+  // Extra structured context if needed
+  google.protobuf.Struct details = 4;
+}
+
+// -------------------- Snapshots --------------------
+
+message SnapshotSpec {
+  string sandbox_id = 1;
+  string name = 2;                           // optional human label
+  Labels labels = 3;
+  // If empty, daemon decides best method (full memory+disk vs memory only)
+  enum Mode { MODE_UNSPECIFIED = 0; FULL = 1; MEMORY_ONLY = 2; }
+  Mode mode = 4;
+}
+
+message Snapshot {
+  string snapshot_id = 1;
+  string sandbox_id = 2;                     // source sandbox
+  string name = 3;
+  Labels labels = 4;
+  google.protobuf.Timestamp created_at = 5;
+  uint64 size_bytes = 6;
+  string parent_snapshot_id = 7;             // lineage
+  string last_error = 8;
+}
+
+// Restore creates a new sandbox or restores in-place (configurable).
+message RestoreSpec {
+  string snapshot_id = 1;
+  // If set, restore into this existing sandbox (advanced; often false).
+  string target_sandbox_id = 2;
+  // Otherwise create new sandbox spec (optional overrides).
+  SandboxSpec new_sandbox_spec = 3;
+}
+
+// -------------------- Artifacts & Files --------------------
+
+enum ArtifactKind {
+  ARTIFACT_KIND_UNSPECIFIED = 0;
+  ARTIFACT_LOG = 1;
+  ARTIFACT_FILE = 2;
+  ARTIFACT_DIRECTORY_TAR = 3;
+  ARTIFACT_PLOTLY_HTML = 4;
+  ARTIFACT_MANIFEST_JSON = 5;
+  ARTIFACT_SNAPSHOT_BUNDLE = 6;
+}
+
+message ArtifactMeta {
+  string artifact_id = 1;
+  ArtifactKind kind = 2;
+  string filename = 3;
+  string mime_type = 4;
+  uint64 size_bytes = 5;
+  google.protobuf.Timestamp created_at = 6;
+
+  // For provenance
+  string sandbox_id = 7;
+  string exec_id = 8;
+
+  // Optional content hash
+  string sha256 = 9;
+}
+
+message PutFileSpec {
+  string sandbox_id = 1;
+  string guest_path = 2;                     // where to write
+  bool overwrite = 3;
+  string filename = 4;                       // optional
+  string mime_type = 5;                      // optional
+}
+
+message PutFileChunk {
+  oneof payload {
+    PutFileSpec spec = 1;
+    bytes data = 2;
+  }
+}
+
+message PutFileResult {
+  string artifact_id = 1;                    // stored copy reference
+  ArtifactMeta meta = 2;
+}
+
+message GetFileRequest {
+  string sandbox_id = 1;
+  string guest_path = 2;
+}
+
+message FileChunk {
+  bytes data = 1;
+}
+
+message ListDirRequest {
+  string sandbox_id = 1;
+  string guest_path = 2;
+}
+
+message DirEntry {
+  string name = 1;
+  bool is_dir = 2;
+  uint64 size_bytes = 3;
+  google.protobuf.Timestamp modified_at = 4;
+}
+
+message ListDirResponse {
+  repeated DirEntry entries = 1;
+}
+
+// -------------------- Runs & Audit --------------------
+
+message Run {
+  string run_id = 1;                         // logical session (agent loop)
+  Labels labels = 2;
+  google.protobuf.Timestamp started_at = 3;
+  google.protobuf.Timestamp finished_at = 4;
+  repeated string sandbox_ids = 5;
+  repeated string exec_ids = 6;
+  repeated string snapshot_ids = 7;
+  repeated string artifact_ids = 8;
+
+  // For cost / token accounting (if LLM integrated)
+  google.protobuf.Struct usage = 9;
+}
+
+message ExportManifestRequest {
+  string run_id = 1;
+  bool include_artifacts = 2;                // if true, bundle tar/zip artifact
+}
+
+message ExportManifestResponse {
+  string manifest_artifact_id = 1;           // JSON or bundle
+}
+
+// -------------------- Events --------------------
+
+message DaemonEvent {
+  string event_id = 1;
+  google.protobuf.Timestamp ts = 2;
+
+  oneof event {
+    SandboxEvent sandbox = 10;
+    ExecEvent exec = 11;
+    SnapshotEvent snapshot = 12;
+    PolicyEvent policy = 13;
+  }
+}
+
+message SandboxEvent {
+  string sandbox_id = 1;
+  SandboxState state = 2;
+  string message = 3;
+  ResourceUsage usage = 4;
+}
+
+message ExecEvent {
+  string exec_id = 1;
+  string sandbox_id = 2;
+  ExecState state = 3;
+  string message = 4;
+}
+
+message SnapshotEvent {
+  string snapshot_id = 1;
+  string sandbox_id = 2;
+  string message = 3;
+}
+
+message PolicyEvent {
+  string sandbox_id = 1;
+  string exec_id = 2;
+  PolicyViolation violation = 3;
+}
+
+// -------------------- Services --------------------
+
+service Sandboxes {
+  rpc CreateSandbox(CreateSandboxRequest) returns (CreateSandboxResponse);
+  rpc GetSandbox(GetSandboxRequest) returns (Sandbox);
+  rpc ListSandboxes(ListSandboxesRequest) returns (ListSandboxesResponse);
+  rpc StopSandbox(StopSandboxRequest) returns (Sandbox);
+  rpc DestroySandbox(DestroySandboxRequest) returns (DestroySandboxResponse);
+
+  // Optional: stream sandbox status updates
+  rpc WatchSandbox(WatchSandboxRequest) returns (stream Sandbox);
+}
+
+message CreateSandboxRequest { SandboxSpec spec = 1; }
+message CreateSandboxResponse { Sandbox sandbox = 1; }
+
+message GetSandboxRequest { string sandbox_id = 1; }
+
+message ListSandboxesRequest {
+  Paging paging = 1;
+  SandboxState state = 2;     // optional filter
+  ProviderType provider = 3;  // optional filter
+  Labels labels = 4;          // optional match (exact on keys present)
+}
+
+message ListSandboxesResponse {
+  repeated Sandbox sandboxes = 1;
+  PageInfo page = 2;
+}
+
+message StopSandboxRequest { string sandbox_id = 1; bool force = 2; }
+message DestroySandboxRequest { string sandbox_id = 1; bool force = 2; }
+message DestroySandboxResponse { string sandbox_id = 1; }
+
+message WatchSandboxRequest { string sandbox_id = 1; }
+
+service Execution {
+  rpc Exec(ExecRequest) returns (ExecResult);
+  rpc ExecStream(ExecRequest) returns (stream ExecStreamResponse);
+  rpc CancelExec(CancelExecRequest) returns (ExecResult);
+  rpc GetExec(GetExecRequest) returns (ExecResult);
+  rpc ListExecs(ListExecsRequest) returns (ListExecsResponse);
+
+  // Follow stdout/stderr for an existing exec_id
+  rpc FollowOutput(FollowOutputRequest) returns (stream OutputChunk);
+}
+
+message ExecRequest { ExecSpec spec = 1; }
+
+message ExecStreamResponse {
+  oneof payload {
+    OutputChunk chunk = 1;
+    ExecResult final = 2;
+    DaemonEvent event = 3; // optional structured events in-line
+  }
+}
+
+message CancelExecRequest { string exec_id = 1; }
+message GetExecRequest { string exec_id = 1; }
+
+message ListExecsRequest { Paging paging = 1; string sandbox_id = 2; }
+message ListExecsResponse { repeated ExecResult execs = 1; PageInfo page = 2; }
+
+message FollowOutputRequest { string exec_id = 1; bool stdout = 2; bool stderr = 3; }
+
+service Snapshots {
+  rpc CreateSnapshot(CreateSnapshotRequest) returns (Snapshot);
+  rpc GetSnapshot(GetSnapshotRequest) returns (Snapshot);
+  rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse);
+  rpc RestoreSnapshot(RestoreSnapshotRequest) returns (Sandbox);
+  rpc DeleteSnapshot(DeleteSnapshotRequest) returns (DeleteSnapshotResponse);
+
+  // Optional: garbage collect snapshots under quota policies
+  rpc GarbageCollectSnapshots(GarbageCollectSnapshotsRequest) returns (GarbageCollectSnapshotsResponse);
+}
+
+message CreateSnapshotRequest { SnapshotSpec spec = 1; }
+message GetSnapshotRequest { string snapshot_id = 1; }
+
+message ListSnapshotsRequest { Paging paging = 1; string sandbox_id = 2; }
+message ListSnapshotsResponse { repeated Snapshot snapshots = 1; PageInfo page = 2; }
+
+message RestoreSnapshotRequest { RestoreSpec spec = 1; }
+
+message DeleteSnapshotRequest { string snapshot_id = 1; }
+message DeleteSnapshotResponse { string snapshot_id = 1; }
+
+message GarbageCollectSnapshotsRequest {
+  // Example: keep latest N per sandbox, or enforce total bytes cap.
+  uint32 keep_latest_per_sandbox = 1;
+  uint64 max_total_bytes = 2;
+  bool dry_run = 3;
+}
+message GarbageCollectSnapshotsResponse {
+  repeated string deleted_snapshot_ids = 1;
+  uint64 reclaimed_bytes = 2;
+}
+
+service Files {
+  // Upload file content into sandbox AND keep a stored artifact copy.
+  rpc PutFile(stream PutFileChunk) returns (PutFileResult);
+
+  // Download file content from sandbox.
+  rpc GetFile(GetFileRequest) returns (stream FileChunk);
+
+  rpc ListDir(ListDirRequest) returns (ListDirResponse);
+
+  // Artifact registry (content stored by daemon, not necessarily in sandbox)
+  rpc GetArtifactMeta(GetArtifactMetaRequest) returns (ArtifactMeta);
+  rpc DownloadArtifact(DownloadArtifactRequest) returns (stream FileChunk);
+}
+
+message GetArtifactMetaRequest { string artifact_id = 1; }
+message DownloadArtifactRequest { string artifact_id = 1; }
+
+service Runs {
+  rpc GetRun(GetRunRequest) returns (Run);
+  rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
+  rpc ExportManifest(ExportManifestRequest) returns (ExportManifestResponse);
+}
+
+message GetRunRequest { string run_id = 1; }
+message ListRunsRequest { Paging paging = 1; Labels labels = 2; }
+message ListRunsResponse { repeated Run runs = 1; PageInfo page = 2; }
+
+service Events {
+  // Stream daemon-wide events (or filtered).
+  rpc Subscribe(SubscribeRequest) returns (stream DaemonEvent);
+}
+
+message SubscribeRequest {
+  // Optional filters:
+  string sandbox_id = 1;
+  string exec_id = 2;
+  ProviderType provider = 3;
+  bool include_usage_updates = 4; // e.g., periodic ResourceUsage
+}

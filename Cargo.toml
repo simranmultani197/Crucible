@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "crates/crucible-daemon",
+    "crates/crucible-client"
+]
+resolver = "2"
