@@ -106,7 +106,13 @@ export async function runChatWorkflow(input: ChatWorkflowInput): Promise<Workflo
     })
     const history = memoryContext.messages
 
-    if (history.length === 0 || (history.length === 1 && history[0].role === 'assistant')) {
+    const { data: conv } = await input.supabase
+      .from('conversations')
+      .select('title')
+      .eq('id', input.conversationId)
+      .single()
+
+    if (!conv?.title || conv?.title === 'New Conversation') {
       // Start auto-titler in background, but track promise to await later
       console.log('Generating auto-title for new conversation:', input.conversationId)
       titlePromise = generateConversationTitle(
