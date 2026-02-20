@@ -24,7 +24,6 @@ export default function SettingsPage() {
   const [apiKey, setApiKey] = useState('')
   const [saving, setSaving] = useState(false)
   const [providerSaving, setProviderSaving] = useState(false)
-  const [probeLoading, setProbeLoading] = useState(false)
   const [probeResult, setProbeResult] = useState<{
     ok: boolean
     transport?: string
@@ -291,7 +290,6 @@ export default function SettingsPage() {
   const runMicrovmProbe = useCallback(async (options?: { silent?: boolean; fresh?: boolean }) => {
     const silent = options?.silent === true
     const fresh = options?.fresh === true
-    setProbeLoading(true)
     if (!silent) {
       setProbeResult(null)
     }
@@ -339,8 +337,6 @@ export default function SettingsPage() {
           variant: 'destructive',
         })
       }
-    } finally {
-      setProbeLoading(false)
     }
   }, [toast, fetchSandboxStatus, fetchSetupGuide])
 

@@ -29,11 +29,19 @@ export async function classifyIntent(
   const text = response.content[0].type === 'text' ? response.content[0].text : ''
 
   try {
-    // Parse JSON from response (handle markdown code blocks)
-    const jsonStr = text.replace(/```json?\n?/g, '').replace(/```/g, '').trim()
+    // Extract JSON from response robustly
+    let jsonStr = text
+    const firstBrace = jsonStr.indexOf('{')
+    const lastBrace = jsonStr.lastIndexOf('}')
+
+    if (firstBrace !== -1 && lastBrace !== -1) {
+      jsonStr = jsonStr.substring(firstBrace, lastBrace + 1)
+    }
+
     return JSON.parse(jsonStr)
-  } catch {
+  } catch (error) {
     // Default to chat if parsing fails
+    console.error('Failed to parse router response', error, text)
     return {
       intent: hasAttachment ? 'file_analysis' : 'chat',
       reasoning: 'Failed to parse router response, defaulting',
