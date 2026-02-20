@@ -105,6 +105,18 @@ export async function runChatWorkflow(input: ChatWorkflowInput): Promise<Workflo
     })
     const history = memoryContext.messages
 
+    if (history.length === 0 || (history.length === 1 && history[0].role === 'assistant')) {
+      // Fire and forget auto-titler
+      generateConversationTitle(
+        input.userId,
+        input.conversationId,
+        input.message,
+        input.supabase,
+        client,
+        input.send
+      ).catch(() => { })
+    }
+
     input.send('status', { stage: 'routing' })
     const routeStepId = await ledger.startStep(runId, 'route_intent', {
       hasAttachment,
@@ -1262,4 +1274,40 @@ function queueMemoryUpdate(
   void memoryManager.rememberTurn(input).catch((error) => {
     console.error('Memory update failed:', error)
   })
+}
+
+async function generateConversationTitle(
+  userId: string,
+  conversationId: string,
+  message: string,
+  supabase: SupabaseClient,
+  client: Anthropic,
+  send: (event: string, data: unknown) => void
+) {
+  try {
+    const response = await client.messages.create({
+      model: HAIKU_MODEL_ID,
+      max_tokens: 20,
+      temperature: 0.7,
+      system: 'You are an AI assistant that creates extremely short, concise titles for chat conversations. Output ONLY the title (3-5 words max), with no quotes, no punctuation at the end, and no conversational filler.',
+      messages: [{ role: 'user', content: message }],
+    })
+
+    let title = response.content[0]?.type === 'text' ? response.content[0].text.trim() : 'New Conversation'
+    title = title.replace(/^["']|["']$/g, '') // strip accidental quotes
+
+    if (title && title !== 'New Conversation') {
+      const { error } = await supabase
+        .from('conversations')
+        .update({ title })
+        .eq('id', conversationId)
+        .eq('user_id', userId)
+
+      if (!error) {
+        send('title', { title })
+      }
+    }
+  } catch (error) {
+    console.error('Failed to generate conversation title:', error)
+  }
 }

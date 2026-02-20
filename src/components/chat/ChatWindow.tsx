@@ -19,6 +19,7 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
     setStreaming,
     setLoading,
     setSandboxStatus,
+    updateConversationTitle,
   } = useChatStore()
 
   const handleSend = useCallback(
@@ -138,6 +139,11 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
                     updateLastMessageMetadata({ error: parsed.stderr })
                   }
                   break
+                case 'title':
+                  if (parsed.title) {
+                    updateConversationTitle(conversationId, parsed.title)
+                  }
+                  break
                 case 'file':
                   updateLastMessageMetadata({
                     filesCreated: [
@@ -203,6 +209,7 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
       setStreaming,
       setLoading,
       setSandboxStatus,
+      updateConversationTitle,
     ]
   )
 
