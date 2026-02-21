@@ -28,6 +28,11 @@ export default function LandingPage() {
             </Button>
           </Link>
         </div>
+        <div className="mt-8">
+          <Link href="/dashboard" className="text-forge-accent hover:underline text-sm font-medium flex items-center justify-center gap-2">
+            View API Control Room &rarr;
+          </Link>
+        </div>
       </div>
 
       {/* Features */}
