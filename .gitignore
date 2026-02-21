@@ -53,3 +53,5 @@ __pycache__/
 # AI agent config (local only)
 .claude/
 .gemini/
+crucible.db
+

@@ -81,6 +81,11 @@ impl SandboxProvider for LimaProvider {
     }
 
     // --- Lifecycle ---
+    async fn list_sandboxes(&self) -> Result<Vec<(SandboxId, SandboxSpec)>> {
+        let specs = self.specs.read().unwrap();
+        Ok(specs.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+    }
+
     async fn create_sandbox(&self, spec: SandboxSpec) -> Result<SandboxId> {
         let id = uuid::Uuid::new_v4().to_string();
         

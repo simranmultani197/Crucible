@@ -99,7 +99,37 @@ impl Sandboxes for SandboxService {
         &self,
         _request: Request<ListSandboxesRequest>,
     ) -> Result<Response<ListSandboxesResponse>, Status> {
-       Err(Status::unimplemented("Not yet implemented"))
+        let sandboxes_data = self.provider.list_sandboxes().await
+            .map_err(|e| Status::internal(format!("Failed to list sandboxes: {}", e)))?;
+
+        let mut sandboxes = Vec::new();
+        for (id, spec) in sandboxes_data {
+            // Note: In a complete implementation, we'd persist the proto `SandboxSpec` somewhere.
+            // For now, reconstruct a generic representation back from the provider spec.
+            let proto_spec = crate::pb::SandboxSpec {
+                base_image: spec.base_image,
+                working_dir: spec.working_dir.display().to_string(),
+                provider: ProviderType::ProviderLocalLima as i32,
+                labels: None,
+                limits: None,
+                policy: None,
+                allow_pool_reuse: false,
+                init_cmd: vec![],
+            };
+
+            sandboxes.push(Sandbox {
+                sandbox_id: id,
+                provider: ProviderType::ProviderLocalLima as i32,
+                state: SandboxState::SandboxReady as i32,
+                spec: Some(proto_spec),
+                created_at: Some(Timestamp::date_time_nanos(2026, 1, 1, 0, 0, 0, 0).unwrap()),
+                updated_at: Some(Timestamp::date_time_nanos(2026, 1, 1, 0, 0, 0, 0).unwrap()),
+                last_error: String::new(),
+                usage: None,
+            });
+        }
+
+        Ok(Response::new(ListSandboxesResponse { sandboxes, page: None }))
     }
 
     async fn stop_sandbox(

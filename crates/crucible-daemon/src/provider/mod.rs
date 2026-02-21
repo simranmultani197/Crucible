@@ -79,6 +79,7 @@ pub trait SandboxProvider: Send + Sync {
     async fn probe(&self) -> anyhow::Result<ProviderHealth>;
 
     // --- Lifecycle ---
+    async fn list_sandboxes(&self) -> anyhow::Result<Vec<(SandboxId, SandboxSpec)>>;
     async fn create_sandbox(&self, spec: SandboxSpec) -> anyhow::Result<SandboxId>;
     async fn start_sandbox(&self, id: &SandboxId) -> anyhow::Result<()>;
     async fn stop_sandbox(&self, id: &SandboxId, force: bool) -> anyhow::Result<()>;
