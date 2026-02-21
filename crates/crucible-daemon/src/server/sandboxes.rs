@@ -111,8 +111,15 @@ impl Sandboxes for SandboxService {
                 working_dir: spec.working_dir.display().to_string(),
                 provider: ProviderType::ProviderLocalLima as i32,
                 labels: None,
-                limits: None,
-                policy: None,
+                limits: None, // Simplified for now
+                policy: Some(crate::pb::SandboxPolicy {
+                    policy_id: String::new(),
+                    network: None,
+                    mounts: None,
+                    enable_gpu: spec.policy.enable_gpu,
+                    enable_snapshotting: spec.policy.enable_snapshotting,
+                    strict_no_fallback: true,
+                }),
                 allow_pool_reuse: false,
                 init_cmd: vec![],
             };

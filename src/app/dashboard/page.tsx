@@ -70,18 +70,18 @@ export default function Dashboard() {
                                 </tr>
                             ) : (
                                 sandboxes.map((s) => (
-                                    <tr key={s.sandboxId} className="border-b border-forge-border hover:bg-forge-bg/50 transition-colors">
-                                        <td className="p-4 font-mono text-xs text-forge-accent">{s.sandboxId}</td>
+                                    <tr key={s.sandbox_id} className="border-b border-forge-border hover:bg-forge-bg/50 transition-colors">
+                                        <td className="p-4 font-mono text-xs text-forge-accent">{s.sandbox_id}</td>
                                         <td className="p-4">
                                             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-500/10 text-green-500 border border-green-500/20">
                                                 <Box className="h-3 w-3" />
                                                 Running
                                             </span>
                                         </td>
-                                        <td className="p-4 text-forge-text text-sm font-medium">{s.spec?.baseImage || 'unknown'}</td>
-                                        <td className="p-4 text-forge-muted text-sm">{s.provider === 1 ? 'Lima' : 'Firecracker'}</td>
+                                        <td className="p-4 text-forge-text text-sm font-medium">{s.spec?.base_image || 'unknown'}</td>
+                                        <td className="p-4 text-forge-muted text-sm">{s.provider === 'PROVIDER_LOCAL_LIMA' || s.provider === 1 ? 'Lima' : 'Firecracker'}</td>
                                         <td className="p-4 text-forge-muted text-sm">
-                                            {s.spec?.policy?.enableGpu ? (
+                                            {s.spec?.policy?.enable_gpu ? (
                                                 <span className="text-forge-accent">Enabled (Venus)</span>
                                             ) : (
                                                 <span>Disabled</span>
